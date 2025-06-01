@@ -171,8 +171,7 @@ class Optimizer():
             t_feat_in_g      = t_feat_in_g_hom[:3].reshape(3,1)
 
             for right in [False, True]:
-                start_idx = 0 if right else 1
-                for projection_idx in range(start_idx, self.number_of_keyframes+1):
+                for projection_idx in range(anchor_idx, self.number_of_keyframes+1):
 
                     # Get the estimated camera pose with respect to global reference frame
                     T_cn_to_g = estimated_global_poses[projection_idx]    # Pose of the left cam at time projection_idx

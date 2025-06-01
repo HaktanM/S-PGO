@@ -9,12 +9,12 @@ __device__ void ExpSO3(const float *psi, float *R) {
     MatrixMultiplication(S, S, S2, 3, 3, 3);    // Compute S * S  (matrix multiplication)
 
     // Norm of psi
-    double angle = sqrt(psi[0] * psi[0] + psi[1] * psi[1] + psi[2] * psi[2]);
+    float angle = sqrt(psi[0] * psi[0] + psi[1] * psi[1] + psi[2] * psi[2]);
 
     // -------------------------------------- Finally compute the rotation matrix --------------------------------------
     if (angle > NUMERICAL_TOLERANCE) {
-        double c1 = sinf(angle) / angle;
-        double c2 = (1 - cosf(angle)) / (angle * angle);
+        float c1 = sinf(angle) / angle;
+        float c2 = (1 - cosf(angle)) / (angle * angle);
         for (int i = 0; i < 9; i++) {
             R[i] =  c1 * S[i] + c2 * S2[i];
         }
@@ -39,11 +39,11 @@ __device__ void LogSO3(const float *R, float *psi) {
     double trace_R = (double) ((double)R[0] + (double)R[4] + (double)R[8]);
     double cos_norm_psi = 0.5 * trace_R - 0.5;
     cos_norm_psi = fmax(-1.0, fmin(cos_norm_psi, 1.0)); // Clamp cos_norm_psi to the range [-1, 1] before calling acos for numerical stability
-    double norm_psi =  acos(cos_norm_psi);
-
+    float norm_psi =  (float) acos(cos_norm_psi); // Acos is highly unstable around pi. Hence, I have employed double up to this point.
+    
     // TO DO : When norm is PI, numerical accuracy is not enough !!!
     if(norm_psi < (M_PI - (5e-1))){ // This is the standard formula
-        double c;
+        float c;
         if(norm_psi < NUMERICAL_TOLERANCE){
             c = 0.5;   // TO DO: Check if a better approximation available
         } else{ 
@@ -55,14 +55,14 @@ __device__ void LogSO3(const float *R, float *psi) {
         psi[2] = - c * (R[1]-R[3]);
 
     } else { // if (norm_psi < (M_PI + NUMERICAL_TOLERANCE)) { // This is the case when norm_psi is around PI       
-        double norms[3] = {
-            norm_psi * sqrt( ( R[0] - cos_norm_psi ) / ( 1.0 - cos_norm_psi ) ),
-            norm_psi * sqrt( ( R[4] - cos_norm_psi ) / ( 1.0 - cos_norm_psi ) ),
-            norm_psi * sqrt( ( R[8] - cos_norm_psi ) / ( 1.0 - cos_norm_psi ) )
+        float norms[3] = {
+            norm_psi * sqrtf( ( R[0] - cos_norm_psi ) / ( 1.0 - cos_norm_psi ) ),
+            norm_psi * sqrtf( ( R[4] - cos_norm_psi ) / ( 1.0 - cos_norm_psi ) ),
+            norm_psi * sqrtf( ( R[8] - cos_norm_psi ) / ( 1.0 - cos_norm_psi ) )
         };
 
         // Now, you can find the sign of each item.
-        double signs[3];
+        float signs[3];
 
         // First find the sign of the first item:        
         signs[0] = copysign(1.0, copysign(1.0f, R[7] - R[5]) * copysign(1.0, sin(norm_psi)));
@@ -123,9 +123,9 @@ __device__ void InvLeftJacobianSO3(const float *psi, float *Jl_inv){
     MatrixMultiplication(S, S, S2, 3, 3, 3);
 
     // Compute the norm of the input vector
-    double psi_norm = (double)sqrtf( psi[0] * psi[0] + psi[1] * psi[1] + psi[2] * psi[2] );
+    float psi_norm = (float)sqrtf( psi[0] * psi[0] + psi[1] * psi[1] + psi[2] * psi[2] );
 
-    double c1, c2;
+    float c1, c2;
     if(psi_norm > NUMERICAL_TOLERANCE){         // If the norm is large enough, use the closed form expression
         c1 = - 0.5;
         c2 = ( 1.0 / (psi_norm * psi_norm) ) - ( 0.5 * cos(psi_norm / 2.0) / ( psi_norm * sin(psi_norm / 2.0) ) );                

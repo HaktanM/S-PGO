@@ -265,8 +265,8 @@ class Optimizer():
         self.prev_norm = r_norm
 
 
-        # delta_pose  = self.step_size * delta_pose
-        # delta_alpha = self.step_size * delta_alpha
+        delta_pose  = self.step_size * delta_pose
+        delta_alpha = self.step_size * delta_alpha
         
         self.update_incremental_states(delta_state=delta_pose)
         self.update_depths(delta_alpha=delta_alpha)

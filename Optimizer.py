@@ -53,7 +53,7 @@ class Optimizer():
 
 
         # Optimization parameters
-        self.step_size  = 0.5
+        self.step_size  = 1.0
         self.prev_norm  = 1e10
 
     
@@ -74,6 +74,37 @@ class Optimizer():
             # self.estimated_incremental_poses.append(T_curr_next_noisy)
             self.estimated_incremental_poses.append(np.eye(4))
 
+    def initalize_depth_with_disparity(self, observations:dict):
+        
+        # Get the extrinsics between stereo setup
+        T_r_l  = self.cam.T_r_l
+        R_r_l  = T_r_l[:3, :3]
+        t_r_l  = T_r_l[:3, 3]
+
+        for landmark_idx in range(self.number_of_landmarks):
+            anchor_idx = map_value_to_index(v=landmark_idx, x=self.number_of_landmarks, n=self.number_of_keyframes)
+
+            # Homogenous pixel coordinates of the landmark at the anchor frame
+            pl_hom = observations[anchor_idx][landmark_idx][False]
+            pr_hom = observations[anchor_idx][landmark_idx][True]
+
+            b_f_l = self.cam.Kl_inv @ pl_hom
+            b_f_r = self.cam.Kr_inv @ pr_hom
+
+            N = self.LU.skew(R_r_l @ b_f_r)
+
+            N_b_f_l = N @ b_f_l
+            N_t_r_l  = N @ t_r_l
+
+            num   = N_b_f_l.T @ N_t_r_l
+            denum = N_b_f_l.T @ N_b_f_l
+
+            depth = num / denum
+
+            self.estimated_inverse_depths[landmark_idx] = 1 / depth
+
+            
+
     def get_estimated_global_poses(self,T_curr_global=None):
         
         # If we don't have any initial condition, initialize with identity
@@ -89,6 +120,161 @@ class Optimizer():
 
         return estimated_global_poses
     
+
+
+    def step(self, observations:dict):
+        """
+        Given the observations, update the state for only once.
+        """
+
+        # State Dimensions
+        size_of_keyframes = self.number_of_keyframes    * 6
+        size_of_landmarks = len(self.estimated_inverse_depths)
+
+        # For a single landmark, we have more than a single observation
+        """
+        We have two camera frames. Left and right (x2)
+        Each observation brings two measurements (x2)
+        Right camera of the anchor frame brings (+1)
+        """
+        size_of_single_observation = ( 2 * self.number_of_keyframes + 1) * 2
+        # size_of_single_observation = self.number_of_keyframes * 2
+
+        observation_dimension = self.number_of_landmarks * size_of_single_observation
+
+        # Get the estimated global poses
+        estimated_global_poses = self.get_estimated_global_poses()
+
+        # Initialize the Jacobian and residual matrices
+        J_T     = np.zeros((observation_dimension, size_of_keyframes))
+        J_alpha = np.zeros((observation_dimension, size_of_landmarks))
+        r       = np.zeros((observation_dimension,1))
+
+        # Get the pixel coordinates with respect to anchor frame
+        row_idx = 0
+        for landmark_idx in range(self.number_of_landmarks):
+                    
+            anchor_idx = map_value_to_index(v=landmark_idx, x=self.number_of_landmarks, n=self.number_of_keyframes)
+
+            # Pose of the anchor frame
+            T_ca_to_g = estimated_global_poses[anchor_idx]   
+
+            # Homogenous pixel coordinates of the landmark at the anchor frame
+            pa_hom = observations[anchor_idx][landmark_idx][False]
+            alpha  = self.estimated_inverse_depths[landmark_idx]
+
+            # Compute the location of the landmark in the global frame
+            t_feat_in_ca     = self.cam.Kl_inv @ pa_hom.reshape(3,1) / alpha
+            t_feat_in_ca_hom = np.append(t_feat_in_ca, 1).reshape(4, 1)
+
+            t_feat_in_g_hom  = T_ca_to_g @ t_feat_in_ca_hom
+            t_feat_in_g      = t_feat_in_g_hom[:3].reshape(3,1)
+
+            for right in [False, True]:
+                start_idx = 0 if right else 1
+                for projection_idx in range(start_idx, self.number_of_keyframes+1):
+
+                    # Get the estimated camera pose with respect to global reference frame
+                    T_cn_to_g = estimated_global_poses[projection_idx]    # Pose of the left cam at time projection_idx
+                    
+                    # Compute the residual
+                    observation   = observations[projection_idx][landmark_idx][right]
+                    estimation, _ = self.cam.project(T_cam_in_global=T_cn_to_g, t_feat_in_global=t_feat_in_g, right=right)
+                    residual      = observation.reshape(3) - estimation.reshape(3)
+
+
+                    # Compute the weights
+                    # If the measurement is not in the image frame, ignore it
+                    if observation[0]<0 or observation[1]<0 or observation[0]>self.cam.width or observation[1]>self.cam.height:
+                        w = 0.0
+                    else:
+                        w = 1.0
+
+                    # if right and projection_idx==anchor_idx:
+                    #     w = 3.0 * w
+                    # # else:
+                    # #     w = 0.0
+
+                    # Apply Cauch Loss for robustness
+                    cauchy_c = 1.0  # Robustness parameter — tune this
+                    norm = np.linalg.norm(residual)
+                    weight = 1.0 / (1.0 + (norm / cauchy_c) ** 2)
+                    sqrt_w = np.sqrt(weight)
+
+                    # Jacobian of the measurement with respect to incremental states
+                    for i in range(anchor_idx,projection_idx):
+                        # Get the Jacobian Terms 
+                        del_pn_del_xi    = self.del_d_pn_del_xi( pa_hom=pa_hom, alpha=alpha, anchor_idx=anchor_idx, projection_idx=projection_idx, i=i, right=right)
+                       
+                        # Compute the column index
+                        J_T_col_idx = 6 * i
+                        
+                        # Fill the residual and Jacobian matrices   
+                        J_T[row_idx:row_idx+2, J_T_col_idx:J_T_col_idx+6] = w * sqrt_w * del_pn_del_xi[:2, :] 
+                    
+                    # Jacobian with respect to
+                    del_pn_del_alpha = self.del_pn_del_alpha(pa_hom=pa_hom, alpha=alpha, poses=estimated_global_poses, anchor_idx=anchor_idx, projection_idx=projection_idx, right=right)
+                    
+                    J_alpha_col_idx  = landmark_idx
+                    J_alpha[row_idx:row_idx+2, J_alpha_col_idx:J_alpha_col_idx+1] = w * sqrt_w * del_pn_del_alpha[:2, :] 
+                    r[row_idx:row_idx+2,0] = w * sqrt_w * residual[:2]
+                    row_idx += 2
+
+        # Compute the Hessian Blocks
+        A = J_T.T @ J_T
+        B = J_T.T @ J_alpha
+        C = J_alpha.T @ J_alpha
+
+        g_T     = J_T.T @ r
+        g_alpha = J_alpha.T @ r
+
+        # # First compute the inverse of a C
+        # # Note that C has to be diagonel
+        # C += np.eye(C.shape[0]) * 1e-3 # Required for stability
+
+        # # # H += np.eye(H.shape[0]) * 1e-6 # Required for stability
+        # delta_alpha = np.linalg.solve(C, g_alpha)
+        # delta_alpha = self.step_size * delta_alpha
+
+        # Check if the matrix is diagonal
+        C += np.eye(C.shape[0]) * 1e-3 # Required for stability
+        if np.all(C == np.diag(np.diagonal(C))):
+            C_inv = np.diag(1.0 / np.diagonal(C))
+        else:
+            raise ValueError("Matrix C must be diagonal.")
+        
+
+        B_C_inv = B @ C_inv 
+        H_T_new = A - B_C_inv @ B.T 
+        g_T_new = g_T.reshape(-1,1) - (B_C_inv @ g_alpha).reshape(-1,1)
+        
+    
+        H_T_new += np.eye(H_T_new.shape[0]) * 1e2 # Required for stability
+        delta_pose  = np.linalg.solve(H_T_new, g_T_new)
+        delta_alpha = C_inv @ (g_alpha.reshape(-1,1)  - B.T @ delta_pose.reshape(-1,1)) # 
+
+        r_norm = np.linalg.norm(r)  
+        if self.prev_norm > r_norm:
+            self.step_size *= 1.01
+        elif self.prev_norm < r_norm:
+            self.step_size *= 0.9     
+
+        self.step_size = max(self.step_size, 0.02)
+        self.step_size = min(self.step_size, 10.0)
+        print(f"step_size : {self.step_size}, r_norm : {r_norm}")
+        self.prev_norm = r_norm
+
+
+        # delta_pose  = self.step_size * delta_pose
+        # delta_alpha = self.step_size * delta_alpha
+        
+        self.update_incremental_states(delta_state=delta_pose)
+        self.update_depths(delta_alpha=delta_alpha)
+
+
+        visualize_jacobian_and_residual_to_cv(J_T,r)
+        # visualize_hessian_and_g(H_T_new, g_T_new)
+                        
 
     def step_pose_only(self, observations:dict, actual_depths:dict):
         """
@@ -123,30 +309,32 @@ class Optimizer():
 
         # Get the pixel coordinates with respect to anchor frame
         J_row_idx = 0
-        for right in [False]:
-            start_idx = 0 if right else 1
-            for projection_idx in range(start_idx, self.number_of_keyframes+1):
-                for landmark_idx in range(self.number_of_landmarks):
+        for landmark_idx in range(self.number_of_landmarks):
                     
-                    anchor_idx = map_value_to_index(v=landmark_idx, x=self.number_of_landmarks, n=self.number_of_keyframes)
+            anchor_idx = map_value_to_index(v=landmark_idx, x=self.number_of_landmarks, n=self.number_of_keyframes)
 
-                    # Pose of the anchor frame
-                    T_ca_to_g = estimated_global_poses[anchor_idx]   
+            # Pose of the anchor frame
+            T_ca_to_g = estimated_global_poses[anchor_idx]   
 
-                    # Homogenous pixel coordinates of the landmark at the anchor frame
-                    pa_hom = observations[anchor_idx][landmark_idx][False]
-                    alpha  = actual_depths[anchor_idx][landmark_idx][False]  # Inverse depth
+            # Homogenous pixel coordinates of the landmark at the anchor frame
+            pa_hom = observations[anchor_idx][landmark_idx][False]
+            alpha  = actual_depths[anchor_idx][landmark_idx][False]  # Inverse depth
 
-                    # Compute the location of the landmark in the global frame
-                    t_feat_in_ca     = self.cam.Kl_inv @ pa_hom.reshape(3,1) / alpha
-                    t_feat_in_ca_hom = np.append(t_feat_in_ca, 1).reshape(4, 1)
+            # Compute the location of the landmark in the global frame
+            t_feat_in_ca     = self.cam.Kl_inv @ pa_hom.reshape(3,1) / alpha
+            t_feat_in_ca_hom = np.append(t_feat_in_ca, 1).reshape(4, 1)
 
-                    t_feat_in_g_hom  = T_ca_to_g @ t_feat_in_ca_hom
-                    t_feat_in_g      = t_feat_in_g_hom[:3].reshape(3,1)
+            t_feat_in_g_hom  = T_ca_to_g @ t_feat_in_ca_hom
+            t_feat_in_g      = t_feat_in_g_hom[:3].reshape(3,1)
 
+
+            for right in [False]:
+                start_idx = 0 if right else 1
+                for projection_idx in range(start_idx, self.number_of_keyframes+1):
+                
             
                     # Jacobian of the measurement with respect to which state
-                    for i in range(self.number_of_keyframes):
+                    for i in range(anchor_idx,projection_idx):
                         del_pn_del_xi = self.del_d_pn_del_xi(pa_hom=observations[anchor_idx][landmark_idx][False], alpha=actual_depths[anchor_idx][landmark_idx][False], anchor_idx=anchor_idx, projection_idx=projection_idx, i=i, right=right)
                       
                         # Get the estimated camera pose with respect to global reference frame
@@ -172,6 +360,9 @@ class Optimizer():
                             w = 0.0
                         else:
                             w = 1.0
+
+                        if _<0.0:
+                            w = 0.0
 
                         residual = residual * w
 
@@ -237,7 +428,7 @@ class Optimizer():
         Right camera of the anchor frame brings (+1)
         """
         size_of_single_observation = ( 2 * self.number_of_keyframes + 1) * 2
-        size_of_single_observation = self.number_of_keyframes * 2
+        # size_of_single_observation = self.number_of_keyframes * 2
 
         # Size of total observations
         observation_dimension = self.number_of_landmarks * size_of_single_observation
@@ -254,7 +445,7 @@ class Optimizer():
         J_row_idx = 0
         for landmark_idx in range(self.number_of_landmarks):
             
-            anchor_idx = 0 # map_value_to_index(v=landmark_idx, x=self.number_of_landmarks, n=self.number_of_keyframes)
+            anchor_idx = map_value_to_index(v=landmark_idx, x=self.number_of_landmarks, n=self.number_of_keyframes)
 
             # Pose of the anchor frame
             T_ca_to_g = actual_poses[anchor_idx]   
@@ -270,18 +461,15 @@ class Optimizer():
             t_feat_in_ca_hom = np.append(t_feat_in_ca, 1).reshape(4, 1)
 
             t_feat_in_g_hom  = T_ca_to_g @ t_feat_in_ca_hom
-            t_feat_in_g      = t_feat_in_g_hom[:3].reshape(3,1)
+            t_feat_in_g      = t_feat_in_g_hom[:3,0].reshape(3,1)
             
             # Iterate through all the observations
-            for right in [False]:
+            for right in [False, True]:
                 start_idx = 0 if right else 1
                 for projection_idx in range(start_idx, self.number_of_keyframes+1):
                     # Get the Jacobian with respect to inverse depth
                     del_pn_del_alpha = self.del_pn_del_alpha(pa_hom=pa_hom, alpha=alpha, poses=actual_poses, anchor_idx=anchor_idx, projection_idx=projection_idx, right=right)
                     
-
-                    if right and projection_idx==0:
-                        print("del_pn_del_alpha : \n",del_pn_del_alpha)
                     # Get the camera pose with respect to global reference frame
                     T_cn_to_g = actual_poses[projection_idx]    # Pose of the left cam at time projection_idx
                     
@@ -289,39 +477,43 @@ class Optimizer():
                     observation   = observations[projection_idx][landmark_idx][right]
                     estimation, _ = self.cam.project(T_cam_in_global=T_cn_to_g, t_feat_in_global=t_feat_in_g, right=right)
                     residual      = observation.reshape(3) - estimation.reshape(3)
-
+                    
                     # Compute the column index
                     J_col_idx = landmark_idx
 
-                    # If the measurement is not in the image frame, ignore it
-                    if observation[0]<0 or observation[1]<0 or observation[0]>self.cam.width or observation[1]>self.cam.height or actual_alpha>self.max_alpha or actual_alpha<self.min_alpha:
-                        w = 0.0
-                    else:
-                        w = 1.0
+                    # # If the measurement is not in the image frame, ignore it
+                    # if observation[0]<0 or observation[1]<0 or observation[0]>self.cam.width or observation[1]>self.cam.height or actual_alpha>self.max_alpha or actual_alpha<self.min_alpha:
+                    #     w = 0.0
+                    # else:
+                    #     w = 1.0
 
-                    residual = residual * w
+                    # if _<0.0:
+                    #     w = 0.0
 
+                    # residual = residual * w
+
+                    # sqrt_w = 1.0
+
+                    # cauchy_c = 10.0  # Robustness parameter — tune this
+                    # norm = np.linalg.norm(residual)
+                    # weight = 1.0 / (1.0 + (norm / cauchy_c) ** 2)
+                    # sqrt_w = np.sqrt(weight)
+
+                    w      = 1.0
                     sqrt_w = 1.0
-
-                    cauchy_c = 10.0  # Robustness parameter — tune this
-                    norm = np.linalg.norm(residual)
-                    weight = 1.0 / (1.0 + (norm / cauchy_c) ** 2)
-                    sqrt_w = np.sqrt(weight)
-
-                    
 
                     # Fill the residual and Jacobian matrices
                     r[J_row_idx:J_row_idx+2,0] = w * sqrt_w * residual[:2]
-                    J[J_row_idx:J_row_idx+2, J_col_idx:J_col_idx+1] = - w * sqrt_w * del_pn_del_alpha[:2, :] 
+                    J[J_row_idx:J_row_idx+2, J_col_idx:J_col_idx+1] = w * sqrt_w * del_pn_del_alpha[:2, :] 
 
                     J_row_idx += 2
-                
+        
         # Compute the incremental update to the state
         H = J.T @ J
         g = J.T @ r
 
         H += np.eye(H.shape[0]) * 1e-3 # Required for stability
-        delta_alpha = - np.linalg.solve(H, g)
+        delta_alpha = np.linalg.solve(H, g)
         delta_alpha = self.step_size * delta_alpha
 
         # r_norm = np.linalg.norm(r)  
@@ -456,32 +648,44 @@ class Optimizer():
         T_ca_to_g = poses[anchor_idx]        # Pose of the anchor frame
         T_cn_to_g = poses[projection_idx]    # Pose of the left cam at time projection_idx
 
+        if right:
+            # Adjust for left-to-right baseline
+            T_cn_to_g = T_cn_to_g @ self.cam.T_r_l   
+
         # Compute the T_ca_to_cn 
         T_ca_to_cn = np.linalg.inv(T_cn_to_g) @ T_ca_to_g
-        R_ca_cn    = T_ca_to_cn[:3, :3].reshape(3,3)
+        R_ca_to_cn = T_ca_to_cn[:3,:3]
+        t_ca_in_cn = T_ca_to_cn[:3,3]
 
         # Compute the t_feat_in_ca
         t_feat_in_ca     = self.cam.Kl_inv @ pa_hom.reshape(3,1) / alpha
-        t_feat_in_ca_hom = np.append(t_feat_in_ca, 1).reshape(4, 1)
 
         # Compute the t_feat_in_cn
-        t_feat_in_cn_hom = T_ca_to_cn @ t_feat_in_ca_hom
-        t_feat_in_cn = t_feat_in_cn_hom[:3]
+        t_feat_in_cn = (R_ca_to_cn @ t_feat_in_ca).reshape(3,1) + t_ca_in_cn.reshape(3,1)
 
-        # Compute b_feat_cn_estimated
+        # Get intrinsic matrix
         K = self.cam.Kr if right else self.cam.Kl
-        b_feat_in_cn_estimated = K @ t_feat_in_cn.reshape(3,1)
 
         # Compute partial derivatives
-        del_pn_del_b      = self.del_p_del_b(b=b_feat_in_cn_estimated)
-        del_b_del_tcn     = self.del_b_del_tcn(right=right)
-        del_tcn_del_tca   = R_ca_cn
+        del_pcn_del_bcn   = K
+        del_bcn_del_tcn   = self.jacobian_of_projection(vec=t_feat_in_cn)
+        del_tcn_del_tca   = R_ca_to_cn
         del_tca_del_alpha = - t_feat_in_ca / alpha
 
         # Finally, compute the Jacobian with respect to alpha
-        del_pn_del_alpha  = del_pn_del_b @ del_b_del_tcn @ del_tcn_del_tca @ del_tca_del_alpha
+        del_pn_del_alpha  = del_pcn_del_bcn @ del_bcn_del_tcn @ del_tcn_del_tca @ del_tca_del_alpha
 
         return del_pn_del_alpha
+    
+
+    def jacobian_of_projection(self, vec:np.array):
+        vec = vec.reshape(3)
+        result = np.array([
+            1.0/vec[2], 0.0, -(vec[0]/(vec[2]*vec[2])),
+            0.0, 1.0/vec[2], -(vec[1]/(vec[2]*vec[2])),
+            0.0,      0.0,                 0.0
+        ]).reshape(3,3)
+        return result
     
     def del_p_del_b(self, b:np.array):
         b = b.reshape(3)

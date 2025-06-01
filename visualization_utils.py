@@ -47,7 +47,7 @@ def visualize_jacobian_and_residual_to_cv(J, residual):
 
     img_bgr = cv2.cvtColor(img, cv2.COLOR_RGBA2BGR)
     cv2.imshow("Window", img_bgr)
-    cv2.waitKey(10)
+    cv2.waitKey()
 
     plt.close(fig)
 
@@ -86,7 +86,7 @@ def visualize_jacobian(J):
     # Convert to BGR for OpenCV
     img_bgr = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
     cv2.imshow("Window", img_bgr)
-    cv2.waitKey(10)
+    cv2.waitKey(1)
 
 
 def visualize_hessian_and_g(H, g):
@@ -120,7 +120,7 @@ def visualize_hessian_and_g(H, g):
     ax2.plot(g, marker='o', linestyle='-', color='crimson')
     ax2.set_title('g Vector')
     ax2.set_xlabel('Observation Index')
-    ax2.set_ylabel('Residual Magnitude')
+    ax2.set_ylabel('g Magnitude')
     ax2.grid(True)
 
     fig.tight_layout()
@@ -132,7 +132,7 @@ def visualize_hessian_and_g(H, g):
 
     img_bgr = cv2.cvtColor(img, cv2.COLOR_RGBA2BGR)
     cv2.imshow("Hessian", img_bgr)
-    cv2.waitKey(10)
+    cv2.waitKey(1)
 
     plt.close(fig)
 
@@ -152,7 +152,7 @@ def visualize_depth_estimation(actual_depths, estimated_depths):
     ax.set_title("Scatter Plot: Actual vs Estimated Depth")
     ax.set_xlabel("Index")
     ax.set_ylabel("Depth Value")
-    ax.set_ylim([-1,15])
+    ax.set_ylim([-1,25])
     ax.legend()
     ax.grid(True)
     fig.tight_layout()
@@ -168,4 +168,4 @@ def visualize_depth_estimation(actual_depths, estimated_depths):
 
     # Show with OpenCV
     cv2.imshow("Depth Estimation Scatter Plot", img_bgr)
-    cv2.waitKey(10)  # Adjust delay or use 0 to wait for key press
+    cv2.waitKey(1)  # Adjust delay or use 0 to wait for key press

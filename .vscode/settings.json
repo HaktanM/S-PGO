@@ -55,6 +55,7 @@
         "ios": "cpp",
         "locale": "cpp",
         "print": "cpp",
-        "queue": "cpp"
+        "queue": "cpp",
+        "core": "cpp"
     }
 }

@@ -7,4 +7,6 @@ from libcpp.string cimport string
 cdef extern from "Manager.hpp":
     cdef cppclass Manager:
         Manager()
-        void createLandmark(int anchor_frame_idx, float inv_depth)
+        void addObservation(int *src_idx, int *tgt_idx, int *lmk_idx, int new_measurement_size)
+        void printObservations();
+        

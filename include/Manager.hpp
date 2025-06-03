@@ -1,43 +1,61 @@
+#ifndef MANAGER_H
+#define MANAGER_H
+
 #include <Eigen/Dense>
 #include <Eigen/Geometry>
 #include <iostream>
 
-struct Observation{
-    // Pixel coordinate of the tracked feature
-    Eigen::Vector3d _pixel_coordinate;
+// Cuda libraries are required to allocate memory in device
+#include <cuda.h>
+#include <cuda_runtime.h>
 
-    // This is the index of the frame, where the observation belongs
-    int _frame_idx;
+// We need to store the observations as arrays in Device !!!
+struct Observations{
+    Observations(size_t max_observation_size);
 
-    // Weigth of the observation
-    float _weigth;
+    // Create streams for asynchronous memory copies
+    cudaStream_t _stream_src, _stream_tgt, _stream_lmk;
+    
+    int *_d_source_frame_indexes;   // Index of the frame where the patch is originally extracted
+    int *_d_target_frame_indexes;   // Index of the frame where the current observation has been extracted 
+    int *_d_landmark_ids;           // Index of the global observation
+    size_t _size{0};                // Amount of observations till now
+
+    void addObservation(int *src_idx, int *tgt_idx, int *lmk_idx, size_t new_measurement_size);
 };
 
 
-struct Landmark{
-private:
-    int _anchor_frame_idx;
+
+struct KeyFrame{
 public:
-    float _inv_depth;
-    std::vector<Observation> _observations;
-
-    Landmark(int anchor_frame_idx, float inv_depth)
-        : _anchor_frame_idx(anchor_frame_idx), _inv_depth(inv_depth){};
-
-    // This is thw way to read the anchor frame index
-    int anchorFrameIdx() const {
-        return _anchor_frame_idx;
-    }
+    float *_coord_x;         // Pixel x coordinates in anchar frame
+    float *_coord_y;         // Pixel y coordinates in anchar frame
+    float *_inverse_depths;  // Estimated inverse depth of each frame
+    
+    // For stereo, we also store the image coordinates in the second_camera. 
+    float *_coord_x_s;         // Pixel x coordinates in stereo frame
+    float *_coord_y_s;         // Pixel y coordinates in stereo frame
 };
-
 
 struct Manager{
 public:
-    size_t _landmark_counter{0};
+
+    Manager() : _observations(_max_observations_size) {};
+    int _landmark_counter{0};
 
     // Map between the landmark index and landmark
-    std::unordered_map<size_t, Landmark> _landmarks;
+    std::unordered_map<int, KeyFrame> _keyframes;
 
-    void addObservation(size_t landmark_idx, Eigen::Vector3d pixel_coordinate, int frame_idx, float weight);
-    void createLandmark(int anchor_frame_idx, float inv_depth);
+
+    // First initialize the _max_observations_size, then declare the _observations
+    size_t _max_observations_size{10000};
+    Observations _observations;
+
+    // When new frame arrives, we can add new observations to our pose graph
+    void addObservation(int *src_idx, int *tgt_idx, int *lmk_idx, int new_measurement_size);
+    void printObservations();
+
+    
 };
+
+#endif

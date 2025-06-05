@@ -1,7 +1,7 @@
-from Simulator import Simulator, DeterministicSimulator
-from Optimizer import Optimizer
-from SceneRenderer import Renderer
-from visualization_utils import visualize_depth_estimation
+from PythonUtils.Simulator import Simulator
+from PythonUtils.Optimizer import Optimizer
+from PythonUtils.SceneRenderer import Renderer
+from PythonUtils.visualization_utils import visualize_depth_estimation
 import numpy as np
 
 from Optimizer import map_value_to_index
@@ -11,18 +11,17 @@ class Manager():
     def __init__(self):
 
         # Number of keyframes
-        self.n = 1
+        self.n = 10
 
         # Number of landmarks 
-        self.m = 1 #  30 * self.n
+        self.m = 30 * self.n
 
         # Initialize the simulator
-        self.simulator = DeterministicSimulator()
+        self.simulator = Simulator(n=self.n+1, m=self.m)
         
         # Initialize the optimizer
         self.optimizer = Optimizer(n=self.n, m=self.m)
         self.optimizer.initialize_estimated_incremental_poses(actual_incremental_poses=self.simulator.incremental_poses)
-        self.optimizer.estimated_inverse_depths[0] = 1 / 15.0
 
         # Finally, initialize the visualizer
         self.initialize_the_visualizer()
@@ -110,7 +109,7 @@ class Manager():
 
 
     def step(self):
-        self.optimizer.step(observations=self.simulator.observations)
+        self.optimizer.step(observations=self.simulator.noisy_observations)
 
         errors = self.compute_estimation_errors()
         msg = 'Errors : ' + ', '.join([f"{item:.06f}" for item in errors])
@@ -142,29 +141,12 @@ class Manager():
 #     worker.join()
 
 
-if __name__ == "__main__":
-    manager = Manager()
-    
-    # Create and start the background thread
-    worker = threading.Thread(
-        target=manager.depth_only_optimization_loop,
-        daemon=True            # ensures the thread won’t block process exit
-    )
-    worker.start()
-
-    manager.visualizer.start_rendering()
-
-    worker.join()
-
-
 # if __name__ == "__main__":
 #     manager = Manager()
-
-#     manager.optimizer.initalize_depth_with_disparity(observations=manager.simulator.observations)
-
+#     # manager.optimizer.initalize_depth_with_disparity(observations=manager.simulator.observations)
 #     # Create and start the background thread
 #     worker = threading.Thread(
-#         target=manager.optimization_loop,
+#         target=manager.depth_only_optimization_loop,
 #         daemon=True            # ensures the thread won’t block process exit
 #     )
 #     worker.start()
@@ -172,3 +154,20 @@ if __name__ == "__main__":
 #     manager.visualizer.start_rendering()
 
 #     worker.join()
+
+
+if __name__ == "__main__":
+    manager = Manager()
+
+    manager.optimizer.initalize_depth_with_disparity(observations=manager.simulator.noisy_observations)
+
+    # Create and start the background thread
+    worker = threading.Thread(
+        target=manager.optimization_loop,
+        daemon=True            # ensures the thread won’t block process exit
+    )
+    worker.start()
+
+    manager.visualizer.start_rendering()
+
+    worker.join()

@@ -1,6 +1,6 @@
 import numpy as np
-from StereoSetup import StereoSetup
-from utils import SamplePoses
+from PythonUtils.StereoSetup import StereoSetup
+from PythonUtils.utils import SamplePoses
 
 
 class Manager:

@@ -6,7 +6,7 @@ import torch
 import numpy as np
 
 
-from visualization_utils import *
+from PythonUtils.visualization_utils import *
 
 
 def map_value_to_index(v, x, n):
@@ -19,8 +19,8 @@ def map_value_to_index(v, x, n):
 
 
 
-from StereoSetup import StereoSetup
-from LieUtils import LieUtils
+from PythonUtils.StereoSetup import StereoSetup
+from PythonUtils.LieUtils import LieUtils
 
 class Optimizer():
     def __init__(self, n=10, m=80):

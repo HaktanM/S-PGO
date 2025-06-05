@@ -4,8 +4,8 @@ import pypose as pp
 import torch
 import sys
 
-from StereoSetup import StereoSetup
-from utils import SamplePoses, get_point_samples
+from PythonUtils.StereoSetup import StereoSetup
+from PythonUtils.utils import SamplePoses, get_point_samples
 
 
 
@@ -40,6 +40,7 @@ class Simulator():
         """
         self.observations  = {}
         self.actual_depths = {}
+        self.validty = {}
 
         self.noisy_observations  = {}
         for right in [False, True]:
@@ -48,6 +49,12 @@ class Simulator():
                     p, alpha = self.cam.project(T_cam_in_global=self.poses[cam_idx], t_feat_in_global=self.points[landmark_idx], right=right)
                     self.observations.setdefault(cam_idx, {}).setdefault(landmark_idx, {})[right] = p
                     self.actual_depths.setdefault(cam_idx, {}).setdefault(landmark_idx, {})[right] = alpha
+
+                    depth = 1 / alpha
+                    if depth<0.2:
+                        self.validty.setdefault(cam_idx, {}).setdefault(landmark_idx, {})[right] = False
+                    else:
+                        self.validty.setdefault(cam_idx, {}).setdefault(landmark_idx, {})[right] = True
 
                     # Add Gaussian noise to simulate noisy observation
                     noise = np.random.normal(loc=0.0, scale=self.pixel_noise_std, size=p.shape)

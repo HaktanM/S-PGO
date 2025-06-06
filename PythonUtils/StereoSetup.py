@@ -14,8 +14,8 @@ class StereoSetup():
                             [0.0, 0.0, 1.0]]).reshape(3,3)
         
         # self.Kr = self.Kl.copy()
-        self.Kr = np.array([[300.0, 0.0, 320.0],
-                            [0.0, 300.0, 256.0],
+        self.Kr = np.array([[200.0, 0.0, 300.0],
+                            [0.0, 200.0, 200.0],
                             [0.0, 0.0, 1.0]]).reshape(3,3)
         
         self.Kl_inv = np.linalg.inv(self.Kl)

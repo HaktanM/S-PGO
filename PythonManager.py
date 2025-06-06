@@ -23,6 +23,9 @@ class Manager():
         # Initilize the CUDA solver
         self.solver = Solver.CudaSolver(self.n, self.m)
 
+        # Load calibration to solver
+        self.loadCalibration()
+
         # Load Observations to solver
         self.loadObservations()
 
@@ -37,9 +40,21 @@ class Manager():
                 else:
                     print("Non Valid Observation has been detected")
 
+    def loadCalibration(self):
+        intrinsics = np.array([
+            self.simulator.cam.Kl[0,0], self.simulator.cam.Kl[1,1], self.simulator.cam.Kl[0,2], self.simulator.cam.Kl[1,2],
+            self.simulator.cam.Kr[0,0], self.simulator.cam.Kr[1,1], self.simulator.cam.Kr[0,2], self.simulator.cam.Kr[1,2]
+        ]).reshape(8).astype(np.float32)
 
+        T_r_to_l = self.simulator.cam.T_r_l.reshape(16).astype(np.float32)
+
+        self.solver.loadCalibration(intrinsics, T_r_to_l)
 if __name__ == "__main__":
     manager = Manager()
     left_obs, right_obs = manager.solver.getObservation(0,0)
     print(left_obs)
     print(right_obs)
+
+    intrinsics, T_r_to_l = manager.solver.getCalibration()
+    print(intrinsics)
+    print(T_r_to_l)

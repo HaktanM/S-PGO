@@ -51,7 +51,7 @@ class Simulator():
                     self.actual_depths.setdefault(cam_idx, {}).setdefault(landmark_idx, {})[right] = alpha
 
                     depth = 1 / alpha
-                    if depth<0.2:
+                    if depth<0.2 or p[0,0]>self.cam.width or p[1,0]>self.cam.height:
                         self.validty.setdefault(cam_idx, {}).setdefault(landmark_idx, {})[right] = False
                     else:
                         self.validty.setdefault(cam_idx, {}).setdefault(landmark_idx, {})[right] = True

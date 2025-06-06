@@ -22,6 +22,12 @@ cdef class CudaSolver:
     def __dealloc__(self):
         del self.thisptr
 
+    def loadCalibration(self, float[:] intrinsics_py, float[:] T_r_to_l_py):
+        # Convert python objects to C objects
+        cdef float[:] intrinsics = intrinsics_py
+        cdef float[:] T_r_to_l = T_r_to_l_py
+        self.thisptr.loadCalibration(&intrinsics[0], &T_r_to_l[0])
+
     def writeObservations(self, int anchor_frame_ID, int target_frame_ID, int global_feat_ID, float[:] left_obs_py, float[:] right_obs_py):
         # Convert python objects to C objects
         cdef float[:] left_obs  = left_obs_py
@@ -56,3 +62,19 @@ cdef class CudaSolver:
 
         # Reshape into (4, 4)
         return ( left_obs_py.reshape((3, 1)), right_obs_py.reshape((3, 1)) )
+
+
+    def getCalibration(self):
+        # Create NumPy array to hold 16 floats (4x4)
+        intrinsics_py = np.empty(8, dtype=np.float32)
+        T_r_to_l_py = np.empty(16, dtype=np.float32)
+
+        # Get memoryview
+        cdef float[::1] intrinsics_view = intrinsics_py
+        cdef float[::1] T_r_to_l_view = T_r_to_l_py
+
+        # Pass pointer to C++
+        self.thisptr.getCalibration(&intrinsics_view[0], &T_r_to_l_view[0])
+
+        # Reshape into (4, 4)
+        return ( intrinsics_py.reshape((4, 2)), T_r_to_l_py.reshape((4, 4)) )

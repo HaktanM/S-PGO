@@ -42,7 +42,7 @@ public:
         }
 
         // Frame ID, Local Feature ID
-        _inverse_depths    = torch::zeros({N, M}, _options_float);
+        _inverse_depths    = torch::zeros({N*M}, _options_float);
 
         
         // Anchor frame of each feature is stored here

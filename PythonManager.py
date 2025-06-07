@@ -51,12 +51,12 @@ class Manager():
         self.solver.loadCalibration(intrinsics, T_r_to_l)
 if __name__ == "__main__":
     manager = Manager()
-    left_obs, right_obs = manager.solver.getObservation(0,0)
-    print(left_obs)
-    print(right_obs)
+    # left_obs, right_obs = manager.solver.getObservation(0,0)
+    # print(left_obs)
+    # print(right_obs)
 
-    intrinsics, T_r_to_l = manager.solver.getCalibration()
-    print(intrinsics)
-    print(T_r_to_l)
+    # intrinsics, T_r_to_l = manager.solver.getCalibration()
+    # print(intrinsics)
+    # print(T_r_to_l)
 
     manager.solver.step(1)

@@ -22,6 +22,9 @@ cdef class CudaSolver:
     def __dealloc__(self):
         del self.thisptr
 
+    def step(self, int iterations):
+        self.thisptr.step(iterations)
+
     def loadCalibration(self, float[:] intrinsics_py, float[:] T_r_to_l_py):
         # Convert python objects to C objects
         cdef float[:] intrinsics = intrinsics_py

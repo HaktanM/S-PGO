@@ -96,6 +96,7 @@ target_sources(${CYTHON_MODULE_NAME} PRIVATE
     src/LieUtils/SO3.cu
     src/LieUtils/SE3.cu
     src/Optimization/Solver.cpp
+    src/Optimization/Solver_cuda.cu
 )
 
 # Link necesssary libraries

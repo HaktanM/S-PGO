@@ -1,6 +1,20 @@
 #include "Solver.hpp"
 
 
+
+void Solver::step(int iterations){
+    updateState(
+        _observations,
+        _incremental_poses,
+        _inverse_depths,
+        _intrinsics,
+        _T_r_to_l,
+        _anchor_frame_id,
+        _target_frame_id,
+        _feat_glob_id
+    );
+}
+
 void Solver::loadCalibration(float *intrinsics, float *T_r_to_l){
     // Load intrinsics and extrinsics into the device
     for(int row_idx = 0; row_idx<4; row_idx++){

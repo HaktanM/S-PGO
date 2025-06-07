@@ -58,3 +58,5 @@ if __name__ == "__main__":
     intrinsics, T_r_to_l = manager.solver.getCalibration()
     print(intrinsics)
     print(T_r_to_l)
+
+    manager.solver.step(1)

@@ -13,3 +13,4 @@ cdef extern from "Solver.hpp":
         void getIncrementalPose(int keyFrameID, float *T_curr_to_next)
         void getObservation(int frame_ID, int global_feat_ID, float *left_obs, float *right_obs)
         void getCalibration(float *intrinsics, float *T_r_to_l)
+        void step(int iterations)

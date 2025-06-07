@@ -1,5 +1,5 @@
-#ifndef MANAGER_H
-#define MANAGER_H
+#ifndef SOLVER_H
+#define SOLVER_H
 
 #include <Eigen/Dense>
 #include <Eigen/Geometry>
@@ -12,7 +12,7 @@
 #include <cuda.h>
 #include <cuda_runtime.h>
 
-
+#include "Solver_cuda.h"
 
 
 struct Solver{
@@ -24,8 +24,8 @@ public:
         std::cout << "Selected device: " << (device.is_cuda() ? "CUDA" : "CPU") << std::endl;
 
         // Set tensor options with float dtype and chosen device
-        torch::TensorOptions _options_float = torch::TensorOptions().dtype(torch::kFloat).device(device);
-        torch::TensorOptions _options_int   = torch::TensorOptions().dtype(torch::kInt).device(device);
+        _options_float = torch::TensorOptions().dtype(torch::kFloat).device(device);
+        _options_int   = torch::TensorOptions().dtype(torch::kInt).device(device);
 
         
         // Frame ID, Global Feature ID, Left or Right Frame, Homogenous Pixel Coordinates
@@ -57,9 +57,9 @@ public:
         _T_r_to_l = torch::zeros({4,4}, _options_float);
     };
 
+    void step(int iterations);
     void loadCalibration(float *intrinsics, float *T_r_to_l);
     void writeObservations(int anchor_frame_ID, int target_frame_ID, int global_feat_ID, float *left_obs, float *right_obs);
-
 
     void getIncrementalPose(int keyFrameID, float *T_curr_to_next);
     void getObservation(int frame_ID, int global_feat_ID, float *left_obs, float *right_obs);
@@ -73,6 +73,7 @@ public:
 
 private:
     torch::Tensor _intrinsics, _T_r_to_l;
+    torch::TensorOptions _options_float, _options_int;
 };
 
 #endif

@@ -3,6 +3,12 @@
 
 
 void Solver::step(int iterations){
+    torch::TensorOptions options = torch::TensorOptions().dtype(torch::kFloat).device(torch::kCUDA);
+    _num_of_pose_params = _incremental_poses.size(0)*6;
+    _num_of_landmarks   = _inverse_depths.size(0);
+    _J_T     = torch::zeros({_counter*4, _num_of_pose_params}, options); 
+    _J_alpha = torch::zeros({_counter*4, _num_of_landmarks}, options); 
+    _r       = torch::zeros({_counter*4, 1}, options); 
     for(int _=0; _<iterations; _++){
         updateState(
             _observations,
@@ -13,7 +19,10 @@ void Solver::step(int iterations){
             _anchor_frame_id,
             _target_frame_id,
             _feat_glob_id,
-            _counter
+            _counter,
+            _J_T,
+            _J_alpha,
+            _r
         );
     }
 }
@@ -21,8 +30,8 @@ void Solver::step(int iterations){
 void Solver::loadCalibration(float *intrinsics, float *T_r_to_l){
     // Load intrinsics and extrinsics into the device
     for(int row_idx = 0; row_idx<4; row_idx++){
-        _intrinsics.index_put_({row_idx,0}, intrinsics[row_idx]);
-        _intrinsics.index_put_({row_idx,1}, intrinsics[4 + row_idx]);
+        _intrinsics.index_put_({0,row_idx}, intrinsics[row_idx]);
+        _intrinsics.index_put_({1,row_idx}, intrinsics[4 + row_idx]);
         for(int col_idx = 0; col_idx<4; col_idx++){
             _T_r_to_l.index_put_({row_idx, col_idx}, T_r_to_l[4*row_idx + col_idx]);
         }
@@ -33,7 +42,7 @@ void Solver::writeObservations(int anchor_frame_ID, int target_frame_ID, int glo
     assert(anchor_frame_ID >= 0 && anchor_frame_ID < _observations.size(0));
     assert(target_frame_ID >= 0 && target_frame_ID < _observations.size(0));
     assert(global_feat_ID >= 0 && global_feat_ID < _observations.size(1));
-    assert(_counter < static_cast<int>(_max_meas_size-1));
+    assert(_counter < static_cast<int>(_max_meas_size));
     
     // Write the pixel coordinates
     for (int row_idx = 0; row_idx < 3; ++row_idx) {
@@ -56,6 +65,23 @@ void Solver::getIncrementalPose(int keyFrameID, float *T_curr_to_next) {
 
     // Copy the pose
     std::memcpy(T_curr_to_next, pose_cpu.data_ptr<float>(), sizeof(float) * 16);
+}
+
+void Solver::writeIncrementalPose(int keyFrameID, float *T_curr_to_next){
+    _incremental_poses.index_put_({keyFrameID, 0, 0}, T_curr_to_next[0]);
+    _incremental_poses.index_put_({keyFrameID, 0, 1}, T_curr_to_next[1]);
+    _incremental_poses.index_put_({keyFrameID, 0, 2}, T_curr_to_next[2]);
+    _incremental_poses.index_put_({keyFrameID, 0, 3}, T_curr_to_next[3]);
+
+    _incremental_poses.index_put_({keyFrameID, 1, 0}, T_curr_to_next[4]);
+    _incremental_poses.index_put_({keyFrameID, 1, 1}, T_curr_to_next[5]);
+    _incremental_poses.index_put_({keyFrameID, 1, 2}, T_curr_to_next[6]);
+    _incremental_poses.index_put_({keyFrameID, 1, 3}, T_curr_to_next[7]);
+
+    _incremental_poses.index_put_({keyFrameID, 2, 0}, T_curr_to_next[8]);
+    _incremental_poses.index_put_({keyFrameID, 2, 1}, T_curr_to_next[9]);
+    _incremental_poses.index_put_({keyFrameID, 2, 2}, T_curr_to_next[10]);
+    _incremental_poses.index_put_({keyFrameID, 2, 3}, T_curr_to_next[11]);
 }
 
 void Solver::getObservation(int frame_ID, int global_feat_ID, float *left_obs, float *right_obs){
@@ -81,4 +107,46 @@ void Solver::getCalibration(float *intrinsics, float *T_r_to_l){
     // Copy the calibration
     std::memcpy(intrinsics, intrinsics_cpu.data_ptr<float>(), sizeof(float) * 8);
     std::memcpy(T_r_to_l, T_r_to_l_cpu.data_ptr<float>(), sizeof(float) * 16);
+}
+
+
+void Solver::getJacobiansAndResidual(float *J_T, float *J_alpha, float *r) {
+    // 1. Move tensors to CPU and ensure they're contiguous
+    auto J_T_cpu = _J_T.to(torch::kCPU).contiguous();
+    auto J_alpha_cpu = _J_alpha.to(torch::kCPU).contiguous();
+    auto r_cpu = _r.to(torch::kCPU).contiguous();
+
+    // 2. Get raw pointers to the CPU tensors
+    float* J_T_data = J_T_cpu.data_ptr<float>();
+    float* J_alpha_data = J_alpha_cpu.data_ptr<float>();
+    float* r_data = r_cpu.data_ptr<float>();
+
+    // 3. Get sizes
+    int num_residuals   = _counter * 4;
+    int num_pose_params = _incremental_poses.size(0) * 6;
+    int num_points      = _inverse_depths.size(0);
+
+    // 4. Copy values into the output pointers
+    std::memcpy(J_T, J_T_data, num_residuals * num_pose_params * sizeof(float));
+    std::memcpy(J_alpha, J_alpha_data, num_residuals * num_points * sizeof(float));
+    std::memcpy(r, r_data, num_residuals * sizeof(float));  // _r is [N, 1], but you copy as a flat array
+}
+
+
+void Solver::loadInverseDepths(float *inverse_depths){
+    // Write the inverse depths
+    for (int row_idx = 0; row_idx < _inverse_depths.size(0); ++row_idx) {
+        _inverse_depths.index_put_({row_idx}, inverse_depths[row_idx]);
+    }
+}
+
+void Solver::getInverseDepths(float *inverse_depths) {
+    // 1. Move tensors to CPU and ensure they're contiguous
+    auto inverse_depths_cpu = _inverse_depths.to(torch::kCPU).contiguous();
+    
+    // 2. Get raw pointers to the CPU tensors
+    float* inverse_depths_data = inverse_depths_cpu.data_ptr<float>();
+
+    // 4. Copy values into the output pointers
+    std::memcpy(inverse_depths, inverse_depths_data, _inverse_depths.size(0) * sizeof(float));
 }

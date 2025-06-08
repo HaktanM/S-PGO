@@ -23,7 +23,10 @@ void updateState(
     const torch::Tensor anchor_frame_id,
     const torch::Tensor target_frame_id,
     const torch::Tensor feat_glob_id,
-    const int measurement_count
+    const int measurement_count,
+    torch::Tensor J_T,
+    torch::Tensor J_alpha,
+    torch::Tensor r
 );
 
 #endif

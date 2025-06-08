@@ -13,7 +13,7 @@
 #include <cuda_runtime.h>
 
 #include "Solver_cuda.h"
-
+#include <chrono>  // For high_resolution_clock
 
 struct Solver{
 public:
@@ -53,7 +53,7 @@ public:
         
 
         // intrinsics and extrinsics will be stored in torch arrays
-        _intrinsics = torch::zeros({4,2}, _options_float);
+        _intrinsics = torch::zeros({2,4}, _options_float);
         _T_r_to_l = torch::zeros({4,4}, _options_float);
     };
 
@@ -62,8 +62,12 @@ public:
     void writeObservations(int anchor_frame_ID, int target_frame_ID, int global_feat_ID, float *left_obs, float *right_obs);
 
     void getIncrementalPose(int keyFrameID, float *T_curr_to_next);
+    void writeIncrementalPose(int keyFrameID, float *T_curr_to_next);
     void getObservation(int frame_ID, int global_feat_ID, float *left_obs, float *right_obs);
     void getCalibration(float *intrinsics, float *T_r_to_l);
+    void getJacobiansAndResidual(float *J_T, float *J_alpha, float *r);
+    void loadInverseDepths(float *inverse_depths);
+    void getInverseDepths(float *inverse_depths);
 
     // The order of decleration below is important !!! 
     long int _max_meas_size;
@@ -71,6 +75,9 @@ public:
     torch::Tensor _observations, _incremental_poses, _inverse_depths, _anchor_frame_id, _target_frame_id, _feat_glob_id;
     int _counter{0};
 
+    torch::Tensor _J_T, _J_alpha, _r;
+    int _num_of_pose_params;
+    int _num_of_landmarks;  
 private:
     torch::Tensor _intrinsics, _T_r_to_l;
     torch::TensorOptions _options_float, _options_int;

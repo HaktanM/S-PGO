@@ -1,6 +1,13 @@
+## Build the Code
 ```bash
 cd S-DPVO
 mkdir build && cd build 
 cmake ..
 cmake --build . -- -j$(nproc)
 ```
+
+
+## TO DO
+* Compute global poses inside the kernel. Torch is too slow :(
+* It is much faster to compute $\mathbf{C}$ and $\mathbf{g}_\alpha$ in the first place rather than $\mathbf{J}_\alpha$. 
+* Check cuBLAS

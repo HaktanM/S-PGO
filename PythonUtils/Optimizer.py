@@ -72,7 +72,8 @@ class Optimizer():
             T_curr_next_noisy = T_curr_next @ T_noise
 
             # self.estimated_incremental_poses.append(T_curr_next_noisy)
-            self.estimated_incremental_poses.append(np.eye(4))
+            self.estimated_incremental_poses.append(T_curr_next_noisy)
+            # self.estimated_incremental_poses.append(np.eye(4))
 
     def initalize_depth_with_disparity(self, observations:dict):
         
@@ -275,6 +276,88 @@ class Optimizer():
         # visualize_hessian_and_g(H_T_new, g_T_new)
                         
 
+    def getJacobiansAndResidual(self, observations:dict):
+        """
+        Given the observations, get the Jacobians and residual
+        """
+
+        # State Dimensions
+        size_of_keyframes = self.number_of_keyframes    * 6
+        size_of_landmarks = len(self.estimated_inverse_depths)
+
+        # For a single landmark, we have more than a single observation
+        """
+        We have two camera frames. Left and right (x2)
+        Each observation brings two measurements (x2)
+        Right camera of the anchor frame brings (+1)
+        """
+        size_of_single_observation = ( 2 * self.number_of_keyframes + 1) * 2
+        # size_of_single_observation = self.number_of_keyframes * 2
+
+        observation_dimension = self.number_of_landmarks * size_of_single_observation
+
+        # Get the estimated global poses
+        estimated_global_poses = self.get_estimated_global_poses()
+
+        # Initialize the Jacobian and residual matrices
+        J_T     = np.zeros((observation_dimension, size_of_keyframes))
+        J_alpha = np.zeros((observation_dimension, size_of_landmarks))
+        r       = np.zeros((observation_dimension,1))
+
+        # Get the pixel coordinates with respect to anchor frame
+        row_idx = 0
+        for landmark_idx in range(self.number_of_landmarks):
+                    
+            anchor_idx = map_value_to_index(v=landmark_idx, x=self.number_of_landmarks, n=self.number_of_keyframes)
+
+            # Pose of the anchor frame
+            T_ca_to_g = estimated_global_poses[anchor_idx]   
+
+            # Homogenous pixel coordinates of the landmark at the anchor frame
+            pa_hom = observations[anchor_idx][landmark_idx][False]
+            alpha  = self.estimated_inverse_depths[landmark_idx]
+
+            # Compute the location of the landmark in the global frame
+            t_feat_in_ca     = self.cam.Kl_inv @ pa_hom.reshape(3,1) / alpha
+            t_feat_in_ca_hom = np.append(t_feat_in_ca, 1).reshape(4, 1)
+
+            t_feat_in_g_hom  = T_ca_to_g @ t_feat_in_ca_hom
+            t_feat_in_g      = t_feat_in_g_hom[:3].reshape(3,1)
+
+            
+            for projection_idx in range(anchor_idx, self.number_of_keyframes+1):
+                for right in [False, True]:
+
+                    # Get the estimated camera pose with respect to global reference frame
+                    T_cn_to_g = estimated_global_poses[projection_idx]    # Pose of the left cam at time projection_idx
+                    
+                    # Compute the residual
+                    observation   = observations[projection_idx][landmark_idx][right]
+                    estimation, _ = self.cam.project(T_cam_in_global=T_cn_to_g, t_feat_in_global=t_feat_in_g, right=right)
+                    residual      = observation.reshape(3) - estimation.reshape(3)
+
+
+                    # Jacobian of the measurement with respect to incremental states
+                    for i in range(anchor_idx,projection_idx):
+                        # Get the Jacobian Terms 
+                        del_pn_del_xi    = self.del_d_pn_del_xi( pa_hom=pa_hom, alpha=alpha, anchor_idx=anchor_idx, projection_idx=projection_idx, i=i, right=right)
+                       
+                        # Compute the column index
+                        J_T_col_idx = 6 * i
+                        
+                        # Fill the residual and Jacobian matrices   
+                        J_T[row_idx:row_idx+2, J_T_col_idx:J_T_col_idx+6] = del_pn_del_xi[:2, :] 
+                    
+                    # Jacobian with respect to
+                    del_pn_del_alpha = self.del_pn_del_alpha(pa_hom=pa_hom, alpha=alpha, poses=estimated_global_poses, anchor_idx=anchor_idx, projection_idx=projection_idx, right=right)
+                    
+                    J_alpha_col_idx  = landmark_idx
+                    J_alpha[row_idx:row_idx+2, J_alpha_col_idx:J_alpha_col_idx+1] = del_pn_del_alpha[:2, :] 
+                    r[row_idx:row_idx+2,0] = residual[:2]
+                    row_idx += 2
+
+        return J_T, J_alpha, r
+    
     def step_pose_only(self, observations:dict, actual_depths:dict):
         """
         Assume that the depths are given,

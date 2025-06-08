@@ -98,11 +98,11 @@ inline __device__ void computePoseInverse(const float* T, float* T_inv) {
 inline __device__ void compute_del_bn_del_tn(float *t_feat_cn, float *del_bn_del_tn){
     del_bn_del_tn[0] = 1.0f / t_feat_cn[2];
     del_bn_del_tn[1] = 0.0f;
-    del_bn_del_tn[2] = -t_feat_cn[0] / t_feat_cn[2];
+    del_bn_del_tn[2] = -t_feat_cn[0] / (t_feat_cn[2]*t_feat_cn[2]);
 
     del_bn_del_tn[3] = 0.0f;
     del_bn_del_tn[4] = 1.0f / t_feat_cn[2];
-    del_bn_del_tn[5] = -t_feat_cn[1] / t_feat_cn[2];
+    del_bn_del_tn[5] = -t_feat_cn[1] / (t_feat_cn[2]*t_feat_cn[2]);
 
     del_bn_del_tn[6] = 0.0f;
     del_bn_del_tn[7] = 0.0f;
@@ -262,7 +262,10 @@ __global__ void JacobianAndResidualKernel(
 
 
     // Compute J_T
-    for(int state_idx = anchor_idx+1; state_idx < (poses.size(0)-1); state_idx++){
+    for(int state_idx = anchor_idx; state_idx < target_idx; state_idx++){
+        // printf("state_idx : %d\n", state_idx);
+        // printf("measurement_idx : %d\n", measurement_idx);
+        // printf("cam_idx : %d\n", cam_idx);
         // Load state to global pose
         float T_state_to_glob[16];
         loadPose(poses, state_idx, 0, T_state_to_glob);
@@ -321,7 +324,9 @@ __global__ void JacobianAndResidualKernel(
         J_alpha[4 * measurement_idx + row_idx + 2 * cam_idx][feat_idx] = del_pn_del_alpha[row_idx];
 
         // Compute the residual
-        r[4 * measurement_idx + row_idx + 2 * cam_idx][0] = observations[anchor_idx][feat_idx][cam_idx][row_idx] - p_in_target_est[row_idx];
+        r[4 * measurement_idx + row_idx + 2 * cam_idx][0] = observations[target_idx][feat_idx][cam_idx][row_idx] - p_in_target_est[row_idx];
+        
+        // printf("cam_idx : %d, row_idx:%d, obser:%2.f\n", cam_idx, row_idx, observations[target_idx][feat_idx][cam_idx][row_idx]);
     }
 }
 
@@ -334,8 +339,13 @@ void updateState(
     const torch::Tensor anchor_frame_id,
     const torch::Tensor target_frame_id,
     const torch::Tensor feat_glob_id,
-    const int measurement_count
+    const int measurement_count,
+    torch::Tensor J_T,
+    torch::Tensor J_alpha,
+    torch::Tensor r
 ){
+
+    auto start = std::chrono::high_resolution_clock::now();
 
     // Compute the poses first
     torch::TensorOptions options = torch::TensorOptions().dtype(torch::kFloat).device(torch::kCUDA);;
@@ -366,13 +376,13 @@ void updateState(
     int measurement_size = measurement_count * 2 * 2;
     
 
-    auto start = std::chrono::high_resolution_clock::now();
-
-    // Allocate memory to compute Jacobians and residuals
-    torch::Tensor J_T     = torch::zeros({measurement_size, incremental_poses.size(0)*6}, options); 
-    torch::Tensor J_alpha = torch::zeros({measurement_size, inverse_depths.size(0)}, options); 
-    torch::Tensor r       = torch::zeros({measurement_size, 1}, options); 
     
+
+    // // Allocate memory to compute Jacobians and residuals
+    // torch::Tensor J_T     = torch::zeros({measurement_size, incremental_poses.size(0)*6}, options); 
+    // torch::Tensor J_alpha = torch::zeros({measurement_size, inverse_depths.size(0)}, options); 
+    // torch::Tensor r       = torch::zeros({measurement_size, 1}, options); 
+    auto mid = std::chrono::high_resolution_clock::now();
     // Compute the Jacobians and residual
     JacobianAndResidualKernel<<<NUM_BLOCKS(measurement_count*2), NUM_THREADS>>>(
         observations.packed_accessor32<float,4,torch::RestrictPtrTraits>(),
@@ -395,43 +405,47 @@ void updateState(
         printf("CUDA kernel launch error: %s\n", cudaGetErrorString(err));
     }  
 
-    torch::Tensor H_TT = torch::matmul(J_T.transpose(0, 1), J_T); 
-    torch::Tensor H_Ta = torch::matmul(J_T.transpose(0, 1), J_alpha); 
-    torch::Tensor H_aa = torch::matmul(J_alpha.transpose(0, 1), J_alpha); 
+    // torch::Tensor H_TT = torch::matmul(J_T.transpose(0, 1), J_T); 
+    // torch::Tensor H_Ta = torch::matmul(J_T.transpose(0, 1), J_alpha); 
+    // torch::Tensor H_aa = torch::matmul(J_alpha.transpose(0, 1), J_alpha); 
 
-    torch::Tensor g_T  = torch::matmul(J_T.transpose(0, 1), r); 
-    torch::Tensor g_a  = torch::matmul(J_alpha.transpose(0, 1), r); 
+    // torch::Tensor g_T  = torch::matmul(J_T.transpose(0, 1), r); 
+    // torch::Tensor g_a  = torch::matmul(J_alpha.transpose(0, 1), r); 
 
 
     // Wait until the Jacobians are ready
     cudaDeviceSynchronize();  // Wait for kernel to finish to see printf output or errors
 
+
     auto end = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
     std::cout << "Elapsed time: " << duration.count() << " milliseconds" << std::endl;
 
-
-    auto J_T_cpu = J_T.cpu();  // Move to CPU if on CUDA device
-    std::cout << "Small portion of J_T tensor:\n";
-    for (int i = 0; i < 4; ++i) {
-        for (int j = 6; j < 12; ++j) {
-            std::cout << J_T_cpu[i][j].item<float>() << "\t";
-        }
-        std::cout << std::endl;
-    }
+    duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - mid);
+    std::cout << "Elapsed time: " << duration.count() << " milliseconds" << std::endl;
 
 
-    auto J_alpha_cpu = J_alpha.cpu();  // Move to CPU if on CUDA device
-    std::cout << "Small portion of J_alpha tensor:\n";
-    for (int i = 0; i < 4; ++i) {
-        std::cout << J_alpha_cpu[i][0].item<float>() << "\t";
-        std::cout << std::endl;
-    }
+    // auto J_T_cpu = J_T.cpu();  // Move to CPU if on CUDA device
+    // std::cout << "Small portion of J_T tensor:\n";
+    // for (int i = 0; i < 4; ++i) {
+    //     for (int j = 6; j < 12; ++j) {
+    //         std::cout << J_T_cpu[i][j].item<float>() << "\t";
+    //     }
+    //     std::cout << std::endl;
+    // }
 
-    auto r_cpu = r.cpu();  // Move to CPU if on CUDA device
-    std::cout << "Small portion of r tensor:\n";
-    for (int i = 0; i < 4; ++i) {
-        std::cout << r_cpu[i][0].item<float>() << "\t";
-        std::cout << std::endl;
-    }
+
+    // auto J_alpha_cpu = J_alpha.cpu();  // Move to CPU if on CUDA device
+    // std::cout << "Small portion of J_alpha tensor:\n";
+    // for (int i = 0; i < 4; ++i) {
+    //     std::cout << J_alpha_cpu[i][0].item<float>() << "\t";
+    //     std::cout << std::endl;
+    // }
+
+    // auto r_cpu = r.cpu();  // Move to CPU if on CUDA device
+    // std::cout << "Small portion of r tensor:\n";
+    // for (int i = 0; i < 4; ++i) {
+    //     std::cout << r_cpu[i][0].item<float>() << "\t";
+    //     std::cout << std::endl;
+    // }
 }

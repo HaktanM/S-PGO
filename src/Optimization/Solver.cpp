@@ -3,16 +3,19 @@
 
 
 void Solver::step(int iterations){
-    updateState(
-        _observations,
-        _incremental_poses,
-        _inverse_depths,
-        _intrinsics,
-        _T_r_to_l,
-        _anchor_frame_id,
-        _target_frame_id,
-        _feat_glob_id
-    );
+    for(int _=0; _<iterations; _++){
+        updateState(
+            _observations,
+            _incremental_poses,
+            _inverse_depths,
+            _intrinsics,
+            _T_r_to_l,
+            _anchor_frame_id,
+            _target_frame_id,
+            _feat_glob_id,
+            _counter
+        );
+    }
 }
 
 void Solver::loadCalibration(float *intrinsics, float *T_r_to_l){

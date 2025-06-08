@@ -9,10 +9,10 @@ class Manager():
     def __init__(self):
 
         # Number of keyframes
-        self.n = 10
+        self.n = 12
 
         # NUmber of landmarks per frame
-        self.m = 40
+        self.m = 96
 
         # Number of total landmarks 
         self.M = self.n * self.m
@@ -49,6 +49,7 @@ class Manager():
         T_r_to_l = self.simulator.cam.T_r_l.reshape(16).astype(np.float32)
 
         self.solver.loadCalibration(intrinsics, T_r_to_l)
+
 if __name__ == "__main__":
     manager = Manager()
     # left_obs, right_obs = manager.solver.getObservation(0,0)
@@ -59,4 +60,4 @@ if __name__ == "__main__":
     # print(intrinsics)
     # print(T_r_to_l)
 
-    manager.solver.step(1)
+    manager.solver.step(1000)

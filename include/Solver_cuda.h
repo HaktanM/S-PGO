@@ -3,6 +3,7 @@
 
 #include <cuda_runtime.h>
 #include <torch/extension.h>
+#include <chrono>  // For high_resolution_clock
 
 #include "lie.h"
 
@@ -21,7 +22,8 @@ void updateState(
     const torch::Tensor T_r_to_l,
     const torch::Tensor anchor_frame_id,
     const torch::Tensor target_frame_id,
-    const torch::Tensor feat_glob_id
+    const torch::Tensor feat_glob_id,
+    const int measurement_count
 );
 
 #endif

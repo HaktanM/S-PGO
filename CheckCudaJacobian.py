@@ -98,14 +98,39 @@ if __name__ == "__main__":
     print(J_T.shape)
     print(J_T_o.shape)
 
-    print(np.max(np.abs(J_T - J_T_o[:J_T.shape[0],:]) / (np.abs(J_T)+0.01)))
-    print(np.max(np.abs(J_alpha - J_alpha_o[:J_alpha.shape[0],:]) / (np.abs(J_alpha)+0.01)))
 
-    # visualize_jacobian_and_residual_to_cv(J_T, r)
-    # visualize_jacobian_and_residual_to_cv(J_T_o[:J_T.shape[0],:], r_o[:r.shape[0],:])
+    # Compute percentage error safely (avoid division by zero)
+    def percentage_error(A, B):
+        # Add small epsilon to denominator to avoid division by zero
+        epsilon = 1e-4
+        return np.abs(A - B) / (np.abs(B) + epsilon) * 100
 
-    # visualize_jacobian_and_residual_to_cv(J_alpha, r)
-    # visualize_jacobian_and_residual_to_cv(J_alpha_o[:J_alpha.shape[0],:], r_o[:r.shape[0],:])
+    # For J_T
+    pct_err_JT = percentage_error(J_T, J_T_o[:J_T.shape[0], :])
+    max_idx_pct_JT = np.unravel_index(np.argmax(pct_err_JT), pct_err_JT.shape)
+    max_pct_JT = pct_err_JT[max_idx_pct_JT]
+
+    print(f"Max percentage error in J_T at index {max_idx_pct_JT}: {max_pct_JT:.6f}%")
+    print(f"J_T value: {J_T[max_idx_pct_JT]}, J_T_o value: {J_T_o[max_idx_pct_JT]}")
+
+    # For J_alpha
+    pct_err_Jalpha = percentage_error(J_alpha, J_alpha_o[:J_alpha.shape[0], :])
+    max_idx_pct_Jalpha = np.unravel_index(np.argmax(pct_err_Jalpha), pct_err_Jalpha.shape)
+    max_pct_Jalpha = pct_err_Jalpha[max_idx_pct_Jalpha]
+
+    print(f"Max percentage error in J_alpha at index {max_idx_pct_Jalpha}: {max_pct_Jalpha:.6f}%")
+    print(f"J_alpha value: {J_alpha[max_idx_pct_Jalpha]}, J_alpha_o value: {J_alpha_o[max_idx_pct_Jalpha]}")
+
+
+
+    # print(J_alpha[:3,:3])
+    # print(J_alpha_o[:3,:3])
+
+    visualize_jacobian_and_residual_to_cv(J_T, r)
+    visualize_jacobian_and_residual_to_cv(J_T_o[:J_T.shape[0],:], r_o[:r.shape[0],:])
+
+    visualize_jacobian_and_residual_to_cv(J_alpha, r)
+    visualize_jacobian_and_residual_to_cv(J_alpha_o[:J_alpha.shape[0],:], r_o[:r.shape[0],:])
 
     # # C = J_alpha.T @ J_alpha
 

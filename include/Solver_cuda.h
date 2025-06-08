@@ -2,6 +2,7 @@
 #define SOLVER_CUDA_H
 
 #include <cuda_runtime.h>
+#include <cublas_v2.h>     // cuBLAS API
 #include <torch/extension.h>
 #include <chrono>  // For high_resolution_clock
 

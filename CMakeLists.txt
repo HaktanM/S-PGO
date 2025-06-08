@@ -33,6 +33,7 @@ find_package(Eigen3 REQUIRED)
 
 # Find CUDA package
 cmake_policy(SET CMP0104 NEW)  # For CUDA_ARCHITECTURES
+find_package(CUDAToolkit REQUIRED)
 
 # Set CMake CUDA flags. This is required to include __device__ functions in different files.
 set(CMAKE_CUDA_ARCHITECTURES "native")    # Use the architecture of the local machine
@@ -107,4 +108,5 @@ ${Python3_LIBRARIES}
     Eigen3::Eigen
     ${TORCH_LIBRARIES} 
     Python3::Python
+    CUDA::cublas
 )

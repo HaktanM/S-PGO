@@ -53,6 +53,7 @@ if(NOT DEFINED NumPy_INCLUDE_DIR)
         OUTPUT_STRIP_TRAILING_WHITESPACE
     )
 endif()
+add_definitions(-DNPY_NO_DEPRECATED_API=NPY_1_7_API_VERSION)  # Numpy expects a depticated version definition.
 
 set(CYTHON_MODULE_NAME Solver)                                                 # Give a name to our Cython Module
 set(CYTHON_SRC ${CMAKE_SOURCE_DIR}/src/CythonAPI/${CYTHON_MODULE_NAME}.pyx)     # Path to cython codes

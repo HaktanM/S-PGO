@@ -118,14 +118,16 @@ __global__ void JacobianAndResidualKernel(
     const torch::PackedTensorAccessor32<int,1,torch::RestrictPtrTraits> target_frame_ids,
     const torch::PackedTensorAccessor32<int,1,torch::RestrictPtrTraits> feat_glob_ids,
     const int measurement_count,
-    torch::PackedTensorAccessor32<float,2,torch::RestrictPtrTraits> J_T,
-    torch::PackedTensorAccessor32<float,2,torch::RestrictPtrTraits> J_alpha,
-    torch::PackedTensorAccessor32<float,2,torch::RestrictPtrTraits> r
+    float *J_T,
+    float *J_alpha,
+    float *r,
+    int J_T_col_size,
+    int J_alpha_col_size,
+    int row_size
 ){
     __shared__ float Kl[9];
     __shared__ float Kl_inv[9];
     __shared__ float Kr[9];
-    __shared__ float Kr_inv[9];
     // First load the data which is commonly used by all threads to the shared memory
     if (threadIdx.x == 0) {      // Load left camera parameters
         Kl[0] = intrinsics[0][0]; // fx
@@ -164,19 +166,7 @@ __global__ void JacobianAndResidualKernel(
         Kr[6] = 0.0f; 
         Kr[7] = 0.0f; 
         Kr[8] = 1.0f; 
-    } else if (threadIdx.x == 3) {
-        Kr_inv[0] = 1.0f / intrinsics[1][0]; //  1 / fx
-        Kr_inv[1] = 0.0f; 
-        Kr_inv[2] = - intrinsics[1][2] / intrinsics[1][0]; //  -cx / fx
-
-        Kr_inv[3] = 0.0f; 
-        Kr_inv[4] = 1.0f / intrinsics[1][1]; //  1 / fy
-        Kr_inv[5] = - intrinsics[1][3] / intrinsics[1][1]; //  -cy / fy
-
-        Kr_inv[6] = 0.0f; 
-        Kr_inv[7] = 0.0f; 
-        Kr_inv[8] = 1.0f; 
-    } 
+    }
 
     // Make sure that the parameters are loaded to the shared memory
     __syncthreads();
@@ -297,7 +287,9 @@ __global__ void JacobianAndResidualKernel(
         // Fill the Jacobian
         for(int row_idx=0; row_idx<2; row_idx++){
             for(int col_idx=0; col_idx<6; col_idx++){
-                J_T[4 * measurement_idx + row_idx + 2 * cam_idx][6 * state_idx + col_idx] = del_pn_del_xi[6 * row_idx + col_idx];
+                int J_T_row_idx = 4 * measurement_idx + row_idx + 2 * cam_idx;
+                int J_T_col_idx = 6 * state_idx + col_idx;
+                J_T[J_T_row_idx * J_T_col_size + J_T_col_idx] = del_pn_del_xi[6 * row_idx + col_idx];
             }
         }
     }
@@ -320,11 +312,14 @@ __global__ void JacobianAndResidualKernel(
 
     
     for(int row_idx=0; row_idx<2; row_idx++){
+
+        int J_alpha_row_idx = 4 * measurement_idx + row_idx + 2 * cam_idx;
+        int J_alpha_col_idx = feat_idx;
         // Fill J_alpha
-        J_alpha[4 * measurement_idx + row_idx + 2 * cam_idx][feat_idx] = del_pn_del_alpha[row_idx];
+        J_alpha[J_alpha_row_idx * J_alpha_col_size + J_alpha_col_idx] = del_pn_del_alpha[row_idx];
 
         // Compute the residual
-        r[4 * measurement_idx + row_idx + 2 * cam_idx][0] = observations[target_idx][feat_idx][cam_idx][row_idx] - p_in_target_est[row_idx];
+        r[J_alpha_row_idx] = observations[target_idx][feat_idx][cam_idx][row_idx] - p_in_target_est[row_idx];
         
         // printf("cam_idx : %d, row_idx:%d, obser:%2.f\n", cam_idx, row_idx, observations[target_idx][feat_idx][cam_idx][row_idx]);
     }
@@ -340,12 +335,17 @@ void updateState(
     const torch::Tensor target_frame_id,
     const torch::Tensor feat_glob_id,
     const int measurement_count,
-    torch::Tensor J_T,
-    torch::Tensor J_alpha,
-    torch::Tensor r
+    float *J_T,
+    float *J_alpha,
+    float *r,
+    float *H_TT,
+    float *g_T,
+    int J_T_col_size,
+    int J_alpha_col_size,
+    int row_size
 ){
 
-    auto start = std::chrono::high_resolution_clock::now();
+    
 
     // Compute the poses first
     torch::TensorOptions options = torch::TensorOptions().dtype(torch::kFloat).device(torch::kCUDA);;
@@ -372,17 +372,10 @@ void updateState(
         // T_r_g = T_l_g @ T_r_l
         poses[i+1][1] = poses[i+1][0].matmul(T_r_to_l);
     }
-
-    int measurement_size = measurement_count * 2 * 2;
     
+    auto start = std::chrono::high_resolution_clock::now();
 
-    
 
-    // // Allocate memory to compute Jacobians and residuals
-    // torch::Tensor J_T     = torch::zeros({measurement_size, incremental_poses.size(0)*6}, options); 
-    // torch::Tensor J_alpha = torch::zeros({measurement_size, inverse_depths.size(0)}, options); 
-    // torch::Tensor r       = torch::zeros({measurement_size, 1}, options); 
-    auto mid = std::chrono::high_resolution_clock::now();
     // Compute the Jacobians and residual
     JacobianAndResidualKernel<<<NUM_BLOCKS(measurement_count*2), NUM_THREADS>>>(
         observations.packed_accessor32<float,4,torch::RestrictPtrTraits>(),
@@ -393,59 +386,71 @@ void updateState(
         target_frame_id.packed_accessor32<int,1,torch::RestrictPtrTraits>(),
         feat_glob_id.packed_accessor32<int,1,torch::RestrictPtrTraits>(),
         measurement_count,
-        J_T.packed_accessor32<float,2,torch::RestrictPtrTraits>(),
-        J_alpha.packed_accessor32<float,2,torch::RestrictPtrTraits>(),
-        r.packed_accessor32<float,2,torch::RestrictPtrTraits>()
+        J_T,
+        J_alpha,
+        r,
+        J_T_col_size,
+        J_alpha_col_size,
+        row_size
     );
 
+
+    cudaDeviceSynchronize();  // Wait for kernel to finish to see printf output or errors
+
+    auto mid = std::chrono::high_resolution_clock::now();
 
     // Check if there exists any error
     cudaError_t err = cudaGetLastError();
     if (err != cudaSuccess) {
         printf("CUDA kernel launch error: %s\n", cudaGetErrorString(err));
     }  
+    
+    // Create cuBLAS handle
+    cublasHandle_t handle;
+    cublasCreate(&handle);
 
-    // torch::Tensor H_TT = torch::matmul(J_T.transpose(0, 1), J_T); 
-    // torch::Tensor H_Ta = torch::matmul(J_T.transpose(0, 1), J_alpha); 
-    // torch::Tensor H_aa = torch::matmul(J_alpha.transpose(0, 1), J_alpha); 
+    cudaStream_t cublas_stream;
+    cublasGetStream(handle, &cublas_stream);  // Get cuBLAS internal stream
 
-    // torch::Tensor g_T  = torch::matmul(J_T.transpose(0, 1), r); 
-    // torch::Tensor g_a  = torch::matmul(J_alpha.transpose(0, 1), r); 
+    // J_T and J_alpha are row major. But cuBLAS requires column major indexing. 
+    // Hence, consider J_T and J_alpha as J_T.transpose and J_alpha.transpose are
+    float alpha{1.0}, beta{0.0};
+    cublasStatus_t err_cublas = cublasSgemm(
+        handle,
+        CUBLAS_OP_N, CUBLAS_OP_T,
+        static_cast<size_t>(J_T_col_size), static_cast<size_t>(J_T_col_size), static_cast<size_t>(row_size),
+        &alpha,
+        J_T, J_T_col_size,     
+        J_T, J_T_col_size,
+        &beta,
+        H_TT, J_T_col_size
+    );
 
+    err_cublas = cublasSgemm(
+        handle,
+        CUBLAS_OP_N, CUBLAS_OP_N,
+        static_cast<size_t>(J_T_col_size), static_cast<size_t>(1), static_cast<size_t>(row_size),
+        &alpha,
+        J_T, J_T_col_size,
+        r,   row_size,
+        &beta,
+        g_T, J_T_col_size
+    );
+
+    cudaStreamSynchronize(cublas_stream);     // Synchronize on that stream
+
+    // Cleanup
+    cublasDestroy(handle);
 
     // Wait until the Jacobians are ready
     cudaDeviceSynchronize();  // Wait for kernel to finish to see printf output or errors
 
-
     auto end = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
-    std::cout << "Elapsed time: " << duration.count() << " milliseconds" << std::endl;
+
+    duration = std::chrono::duration_cast<std::chrono::milliseconds>(mid - start);
+    std::cout << "Elapsed time for kernel :" << duration.count() << " milliseconds" << std::endl;
 
     duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - mid);
-    std::cout << "Elapsed time: " << duration.count() << " milliseconds" << std::endl;
-
-
-    // auto J_T_cpu = J_T.cpu();  // Move to CPU if on CUDA device
-    // std::cout << "Small portion of J_T tensor:\n";
-    // for (int i = 0; i < 4; ++i) {
-    //     for (int j = 6; j < 12; ++j) {
-    //         std::cout << J_T_cpu[i][j].item<float>() << "\t";
-    //     }
-    //     std::cout << std::endl;
-    // }
-
-
-    // auto J_alpha_cpu = J_alpha.cpu();  // Move to CPU if on CUDA device
-    // std::cout << "Small portion of J_alpha tensor:\n";
-    // for (int i = 0; i < 4; ++i) {
-    //     std::cout << J_alpha_cpu[i][0].item<float>() << "\t";
-    //     std::cout << std::endl;
-    // }
-
-    // auto r_cpu = r.cpu();  // Move to CPU if on CUDA device
-    // std::cout << "Small portion of r tensor:\n";
-    // for (int i = 0; i < 4; ++i) {
-    //     std::cout << r_cpu[i][0].item<float>() << "\t";
-    //     std::cout << std::endl;
-    // }
+    std::cout << "Elapsed time for Matrix multiplication :" << duration.count() << " milliseconds" << std::endl;
 }

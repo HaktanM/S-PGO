@@ -25,9 +25,14 @@ void updateState(
     const torch::Tensor target_frame_id,
     const torch::Tensor feat_glob_id,
     const int measurement_count,
-    torch::Tensor J_T,
-    torch::Tensor J_alpha,
-    torch::Tensor r
+    float *J_T,
+    float *J_alpha,
+    float *r,
+    float *H_TT,
+    float *g_T,
+    int J_T_col_size,
+    int J_alpha_col_size,
+    int row_size
 );
 
 #endif

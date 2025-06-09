@@ -291,7 +291,7 @@ class Optimizer():
         Each observation brings two measurements (x2)
         Right camera of the anchor frame brings (+1)
         """
-        size_of_single_observation = ( 2 * self.number_of_keyframes + 1) * 2
+        size_of_single_observation = ( 2 * self.number_of_keyframes + 2) * 2
         # size_of_single_observation = self.number_of_keyframes * 2
 
         observation_dimension = self.number_of_landmarks * size_of_single_observation

@@ -66,6 +66,9 @@ public:
     void getObservation(int frame_ID, int global_feat_ID, float *left_obs, float *right_obs);
     void getCalibration(float *intrinsics, float *T_r_to_l);
     void getJacobiansAndResidual(float *J_T, float *J_alpha, float *r);
+    void get_H_and_g_for_T(float *H_TT, float *g_T);
+
+
     void loadInverseDepths(float *inverse_depths);
     void getInverseDepths(float *inverse_depths);
 
@@ -75,9 +78,15 @@ public:
     torch::Tensor _observations, _incremental_poses, _inverse_depths, _anchor_frame_id, _target_frame_id, _feat_glob_id;
     int _counter{0};
 
-    torch::Tensor _J_T, _J_alpha, _r;
+    // torch::Tensor _J_T, _J_alpha, _r;
     int _num_of_pose_params;
     int _num_of_landmarks;  
+
+    float *_J_T     =NULL;
+    float *_J_alpha =NULL;
+    float *_r       =NULL;
+    float *_H_TT    =NULL;
+    float *_g_T     =NULL;
 private:
     torch::Tensor _intrinsics, _T_r_to_l;
     torch::TensorOptions _options_float, _options_int;

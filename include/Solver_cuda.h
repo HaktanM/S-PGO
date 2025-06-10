@@ -24,15 +24,10 @@ void updateState(
     const torch::Tensor anchor_frame_id,
     const torch::Tensor target_frame_id,
     const torch::Tensor feat_glob_id,
+    const int num_of_poses,
+    const int num_of_landmarks,
     const int measurement_count,
-    float *J_T,
-    float *J_alpha,
-    float *r,
-    float *H_TT,
-    float *g_T,
-    int J_T_col_size,
-    int J_alpha_col_size,
-    int row_size
+    const int iterations
 );
 
 #endif

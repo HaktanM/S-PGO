@@ -87,44 +87,10 @@ cdef class CudaSolver:
         # Reshape into (4, 4)
         return ( intrinsics_py.reshape((4, 2)), T_r_to_l_py.reshape((4, 4)) )
 
-    def getJacobiansAndResidual(self):       
-        J_T     = np.empty( 4 * self.thisptr._counter * self.thisptr._num_of_pose_params, dtype=np.float32)
-        J_alpha = np.empty( 4 * self.thisptr._counter * self.thisptr._num_of_landmarks, dtype=np.float32)
-        r       = np.empty( 4 * self.thisptr._counter, dtype=np.float32)
-
-        # Get memoryview
-        cdef float[::1] J_T_view     = J_T
-        cdef float[::1] J_alpha_view = J_alpha
-        cdef float[::1] r_view       = r
-
-        # Pass pointer to C++
-        self.thisptr.getJacobiansAndResidual(&J_T_view[0], &J_alpha_view[0], &r_view[0])
-
-
-        return (J_T.reshape(4 * self.thisptr._counter, self.thisptr._num_of_pose_params), J_alpha.reshape(4 * self.thisptr._counter, self.thisptr._num_of_landmarks), r.reshape(4 * self.thisptr._counter, 1))
-
-
-    def get_H_and_g_for_T(self):       
-        N = self.thisptr._num_of_pose_params
-        H_TT  = np.empty( N * N , dtype=np.float32)
-        g_T   = np.empty( N, dtype=np.float32)
-
-        # Get memoryview
-        cdef float[::1] H_TT_view  = H_TT
-        cdef float[::1] g_T_view   = g_T
-
-        # Pass pointer to C++
-        self.thisptr.get_H_and_g_for_T(&H_TT_view[0], &g_T_view[0])
-
-
-        return (H_TT.reshape(N,N), g_T.reshape(N, 1))
-
-
     def loadInverseDepths(self, float[:] inverse_depths_py):
         # Convert python objects to C objects
         cdef float[:] inverse_depths_view = inverse_depths_py
         self.thisptr.loadInverseDepths(&inverse_depths_view[0])
-
 
     def getInverseDepths(self):       
         inverse_depths  = np.empty( self.thisptr._number_of_keyframes * self.thisptr._number_of_observations_per_frame, dtype=np.float32)
@@ -134,6 +100,5 @@ cdef class CudaSolver:
 
         # Pass pointer to C++
         self.thisptr.getInverseDepths(&inverse_depths_view[0])
-
 
         return inverse_depths

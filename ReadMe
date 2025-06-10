@@ -12,3 +12,4 @@ cmake --build . -- -j$(nproc)
 * It is much faster to compute $\mathbf{C}$ and $\mathbf{g}_\alpha$ in the first place rather than $\mathbf{J}_\alpha$. 
 * Check cuBLAS
 * What is the effect of the window size in a noisy case? Highlight the fact that we need larger pose graphs for more accurate pose estimations. 
+* Check cuSolver

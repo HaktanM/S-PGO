@@ -1,4 +1,6 @@
 #include "Solver_cuda.h"
+#include "LMutils.h"
+
 
 
 inline __device__ void loadPose(
@@ -17,99 +19,21 @@ inline __device__ void loadPose(
 }
 
 
-inline __device__ void getRotFromT(const float *T, float *R){
-    R[0] = T[0];
-    R[1] = T[1];
-    R[2] = T[2];
-
-    R[3] = T[4];
-    R[4] = T[5];
-    R[5] = T[6];
-
-    R[6] = T[8];
-    R[7] = T[9];
-    R[8] = T[10];
-}
-
-inline __device__ void compute_del_tn_del_xi(const float *T_state_to_target, const float *t_feat_in_state, float *del_tn_del_xi){
-    float R_state_to_target[9];
-    getRotFromT(T_state_to_target, R_state_to_target);
-
-    float skew_t_feat_in_state[9];
-    skew(t_feat_in_state, skew_t_feat_in_state);
-
-    float R_Skew_t[9];
-    MatrixMultiplication(R_state_to_target, skew_t_feat_in_state, R_Skew_t, 3, 3, 3);
-
-    del_tn_del_xi[0] = - R_Skew_t[0];
-    del_tn_del_xi[1] = - R_Skew_t[1];
-    del_tn_del_xi[2] = - R_Skew_t[2];
-    del_tn_del_xi[3] = R_state_to_target[0];
-    del_tn_del_xi[4] = R_state_to_target[1];
-    del_tn_del_xi[5] = R_state_to_target[2];
-
-    del_tn_del_xi[6]  = - R_Skew_t[3];
-    del_tn_del_xi[7]  = - R_Skew_t[4];
-    del_tn_del_xi[8]  = - R_Skew_t[5];
-    del_tn_del_xi[9]  = R_state_to_target[3];
-    del_tn_del_xi[10] = R_state_to_target[4];
-    del_tn_del_xi[11] = R_state_to_target[5];
-
-    del_tn_del_xi[12] = - R_Skew_t[6];
-    del_tn_del_xi[13] = - R_Skew_t[7];
-    del_tn_del_xi[14] = - R_Skew_t[8];
-    del_tn_del_xi[15] = R_state_to_target[6];
-    del_tn_del_xi[16] = R_state_to_target[7];
-    del_tn_del_xi[17] = R_state_to_target[8];
-}
-
-inline __device__ void computePoseInverse(const float* T, float* T_inv) {
-    // Extract rotation R and translation t
-    // T is row-major, so:
-    // R: T[0..2], T[4..6], T[8..10]
-    // t: T[3], T[7], T[11]
-
-    // Compute R^T (transpose of R)
-    T_inv[0] = T[0];
-    T_inv[1] = T[4];
-    T_inv[2] = T[8];
-
-    T_inv[4] = T[1];
-    T_inv[5] = T[5];
-    T_inv[6] = T[9];
-
-    T_inv[8] = T[2];
-    T_inv[9] = T[6];
-    T_inv[10] = T[10];
-
-    // Compute -R^T * t
-    T_inv[3]  = -(T_inv[0] * T[3] + T_inv[1] * T[7] + T_inv[2] * T[11]);
-    T_inv[7]  = -(T_inv[4] * T[3] + T_inv[5] * T[7] + T_inv[6] * T[11]);
-    T_inv[11] = -(T_inv[8] * T[3] + T_inv[9] * T[7] + T_inv[10] * T[11]);
-
-    // Last row is always [0, 0, 0, 1]
-    T_inv[12] = 0.0f;
-    T_inv[13] = 0.0f;
-    T_inv[14] = 0.0f;
-    T_inv[15] = 1.0f;
+__global__ void elementwiseInverseKernel(
+    const float *in,
+    float *out,
+    const float eps,
+    const int size
+){
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if(idx<size){
+        out[idx] = 1.0f / (in[idx] + eps);
+    }
 }
 
 
-inline __device__ void compute_del_bn_del_tn(float *t_feat_cn, float *del_bn_del_tn){
-    del_bn_del_tn[0] = 1.0f / t_feat_cn[2];
-    del_bn_del_tn[1] = 0.0f;
-    del_bn_del_tn[2] = -t_feat_cn[0] / (t_feat_cn[2]*t_feat_cn[2]);
 
-    del_bn_del_tn[3] = 0.0f;
-    del_bn_del_tn[4] = 1.0f / t_feat_cn[2];
-    del_bn_del_tn[5] = -t_feat_cn[1] / (t_feat_cn[2]*t_feat_cn[2]);
-
-    del_bn_del_tn[6] = 0.0f;
-    del_bn_del_tn[7] = 0.0f;
-    del_bn_del_tn[8] = 0.0f;
-}
-
-__global__ void JacobianAndResidualKernel(
+__global__ void LevenbergMarquardt(
     const torch::PackedTensorAccessor32<float,4,torch::RestrictPtrTraits> observations,
     const torch::PackedTensorAccessor32<float,4,torch::RestrictPtrTraits> poses,
     const torch::PackedTensorAccessor32<float,1,torch::RestrictPtrTraits> inverse_depths,
@@ -117,13 +41,7 @@ __global__ void JacobianAndResidualKernel(
     const torch::PackedTensorAccessor32<int,1,torch::RestrictPtrTraits> anchor_frame_ids,
     const torch::PackedTensorAccessor32<int,1,torch::RestrictPtrTraits> target_frame_ids,
     const torch::PackedTensorAccessor32<int,1,torch::RestrictPtrTraits> feat_glob_ids,
-    const int measurement_count,
-    float *J_T,
-    float *J_alpha,
-    float *r,
-    int J_T_col_size,
-    int J_alpha_col_size,
-    int row_size
+    LMvariables *lm_var
 ){
     __shared__ float Kl[9];
     __shared__ float Kl_inv[9];
@@ -177,7 +95,7 @@ __global__ void JacobianAndResidualKernel(
     int cam_idx           = thread_global_idx % 2;  // 0: Left Cam, 1: Right Cam
 
     // Make sure measurement_idx is within bounds 
-    if (measurement_idx >= measurement_count) return;
+    if (measurement_idx >= lm_var->_measurement_count) return;
 
     int anchor_idx = anchor_frame_ids[measurement_idx];
     int target_idx = target_frame_ids[measurement_idx];
@@ -227,10 +145,6 @@ __global__ void JacobianAndResidualKernel(
         MatrixMultiplication(Kr, b_feat_in_target, p_in_target_est, 3, 3, 1);
     }
 
-    
-    
-    
-
     // del_pn_del_bn
     float del_pn_del_bn[9];
     if(cam_idx == 0){     // If the observation belongs to left camera
@@ -253,9 +167,6 @@ __global__ void JacobianAndResidualKernel(
 
     // Compute J_T
     for(int state_idx = anchor_idx; state_idx < target_idx; state_idx++){
-        // printf("state_idx : %d\n", state_idx);
-        // printf("measurement_idx : %d\n", measurement_idx);
-        // printf("cam_idx : %d\n", cam_idx);
         // Load state to global pose
         float T_state_to_glob[16];
         loadPose(poses, state_idx, 0, T_state_to_glob);
@@ -285,11 +196,12 @@ __global__ void JacobianAndResidualKernel(
         MatrixMultiplication(del_pn_del_tn, del_tn_del_xi, del_pn_del_xi, 3, 3, 6);
         
         // Fill the Jacobian
-        for(int row_idx=0; row_idx<2; row_idx++){
+        for(int xy_idx=0; xy_idx<2; xy_idx++){
             for(int col_idx=0; col_idx<6; col_idx++){
-                int J_T_row_idx = 4 * measurement_idx + row_idx + 2 * cam_idx;
+                int J_T_row_idx = 4 * measurement_idx + xy_idx + 2 * cam_idx;
                 int J_T_col_idx = 6 * state_idx + col_idx;
-                J_T[J_T_row_idx * J_T_col_size + J_T_col_idx] = del_pn_del_xi[6 * row_idx + col_idx];
+                lm_var->d_J_T[J_T_row_idx * lm_var->_number_of_pose_params + J_T_col_idx] = del_pn_del_xi[6 * xy_idx + col_idx];
+                // printf("%d, %d, %.5f\n", J_T_row_idx, J_T_col_idx, lm_var->d_J_T[J_T_row_idx * lm_var->_number_of_pose_params + J_T_col_idx]);
             }
         }
     }
@@ -311,19 +223,34 @@ __global__ void JacobianAndResidualKernel(
     MatrixMultiplication(del_pn_del_ta, del_ta_del_alpha, del_pn_del_alpha, 3, 3, 1);
 
     
-    for(int row_idx=0; row_idx<2; row_idx++){
+    for(int xy_idx=0; xy_idx<2; xy_idx++){
 
-        int J_alpha_row_idx = 4 * measurement_idx + row_idx + 2 * cam_idx;
-        int J_alpha_col_idx = feat_idx;
-        // Fill J_alpha
-        J_alpha[J_alpha_row_idx * J_alpha_col_size + J_alpha_col_idx] = del_pn_del_alpha[row_idx];
+        int J_alpha_row_idx = 4 * measurement_idx + xy_idx + 2 * cam_idx;
+        // int J_alpha_col_idx = feat_idx;
+        // // Fill J_alpha
+        // J_alpha[J_alpha_row_idx * J_alpha_col_size + J_alpha_col_idx] = del_pn_del_alpha[row_idx];
 
         // Compute the residual
-        r[J_alpha_row_idx] = observations[target_idx][feat_idx][cam_idx][row_idx] - p_in_target_est[row_idx];
+        lm_var->d_r[J_alpha_row_idx] = observations[target_idx][feat_idx][cam_idx][xy_idx] - p_in_target_est[xy_idx];
         
-        // printf("cam_idx : %d, row_idx:%d, obser:%2.f\n", cam_idx, row_idx, observations[target_idx][feat_idx][cam_idx][row_idx]);
+        // Fill H_aa and g_alpha
+        atomicAdd(&lm_var->d_C[feat_idx], del_pn_del_alpha[xy_idx] * del_pn_del_alpha[xy_idx]);
+        atomicAdd(&lm_var->d_g_a[feat_idx], del_pn_del_alpha[xy_idx] * lm_var->d_r[J_alpha_row_idx]);
     }
 }
+
+
+
+__global__ void print_J_T(LMvariables *lm_var){
+    int thread_global_idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if(thread_global_idx == 0){
+        printf("lm_var->d_J_T : \n");
+        for(int idx=0; idx<lm_var->_number_of_pose_params * lm_var->_measurement_size; idx++){
+            printf("%.5f, ", lm_var->d_J_T[idx]);
+        }
+    }
+}
+
 
 void updateState(
     torch::Tensor observations,
@@ -334,19 +261,11 @@ void updateState(
     const torch::Tensor anchor_frame_id,
     const torch::Tensor target_frame_id,
     const torch::Tensor feat_glob_id,
+    const int num_of_poses,
+    const int num_of_landmark,
     const int measurement_count,
-    float *J_T,
-    float *J_alpha,
-    float *r,
-    float *H_TT,
-    float *g_T,
-    int J_T_col_size,
-    int J_alpha_col_size,
-    int row_size
+    const int iterations
 ){
-
-    
-
     // Compute the poses first
     torch::TensorOptions options = torch::TensorOptions().dtype(torch::kFloat).device(torch::kCUDA);;
     torch::Tensor poses = torch::zeros({incremental_poses.size(0)+1, 2, 4, 4}, options); 
@@ -375,9 +294,18 @@ void updateState(
     
     auto start = std::chrono::high_resolution_clock::now();
 
+    LMvariables h_lm_var;
+    h_lm_var.allocateMemory(num_of_poses, num_of_landmark, measurement_count);
 
+    LMvariables* d_lm_var;
+    cudaMalloc((void**)&d_lm_var, sizeof(LMvariables));
+
+    // We need a pointer to our variables in cuda. 
+    cudaMemcpy(d_lm_var, &h_lm_var, sizeof(LMvariables), cudaMemcpyHostToDevice);
+
+    
     // Compute the Jacobians and residual
-    JacobianAndResidualKernel<<<NUM_BLOCKS(measurement_count*2), NUM_THREADS>>>(
+    LevenbergMarquardt<<<NUM_BLOCKS(h_lm_var._measurement_count), NUM_THREADS>>>(
         observations.packed_accessor32<float,4,torch::RestrictPtrTraits>(),
         poses.packed_accessor32<float,4,torch::RestrictPtrTraits>(),
         inverse_depths.packed_accessor32<float,1,torch::RestrictPtrTraits>(),
@@ -385,26 +313,31 @@ void updateState(
         anchor_frame_id.packed_accessor32<int,1,torch::RestrictPtrTraits>(),
         target_frame_id.packed_accessor32<int,1,torch::RestrictPtrTraits>(),
         feat_glob_id.packed_accessor32<int,1,torch::RestrictPtrTraits>(),
-        measurement_count,
-        J_T,
-        J_alpha,
-        r,
-        J_T_col_size,
-        J_alpha_col_size,
-        row_size
+        d_lm_var
     );
 
 
-    cudaDeviceSynchronize();  // Wait for kernel to finish to see printf output or errors
+    // Wait untill kernel is completed
+    cudaDeviceSynchronize();
 
-    auto mid = std::chrono::high_resolution_clock::now();
-
-    // Check if there exists any error
-    cudaError_t err = cudaGetLastError();
-    if (err != cudaSuccess) {
-        printf("CUDA kernel launch error: %s\n", cudaGetErrorString(err));
-    }  
     
+    float eps{0.001};
+    // Compute the inverse of C
+    elementwiseInverseKernel<<<NUM_BLOCKS(h_lm_var._num_of_landmarks), NUM_THREADS>>>(
+        h_lm_var.d_C,
+        h_lm_var.d_C_inv,
+        eps,
+        h_lm_var._num_of_landmarks
+    );
+
+    cudaDeviceSynchronize();
+    
+    cudaError_t err = cudaGetLastError ();
+    if (err != cudaSuccess) {
+        fprintf(stderr, "CUDA error after kernel: %s\n", cudaGetErrorString(err));
+    }
+
+
     // Create cuBLAS handle
     cublasHandle_t handle;
     cublasCreate(&handle);
@@ -418,39 +351,66 @@ void updateState(
     cublasStatus_t err_cublas = cublasSgemm(
         handle,
         CUBLAS_OP_N, CUBLAS_OP_T,
-        static_cast<size_t>(J_T_col_size), static_cast<size_t>(J_T_col_size), static_cast<size_t>(row_size),
+        static_cast<size_t>(h_lm_var._number_of_pose_params), static_cast<size_t>(h_lm_var._number_of_pose_params), static_cast<size_t>(h_lm_var._measurement_size),
         &alpha,
-        J_T, J_T_col_size,     
-        J_T, J_T_col_size,
+        h_lm_var.d_J_T, h_lm_var._number_of_pose_params,     
+        h_lm_var.d_J_T, h_lm_var._number_of_pose_params,
         &beta,
-        H_TT, J_T_col_size
+        h_lm_var.d_A, h_lm_var._number_of_pose_params
     );
 
     err_cublas = cublasSgemm(
         handle,
         CUBLAS_OP_N, CUBLAS_OP_N,
-        static_cast<size_t>(J_T_col_size), static_cast<size_t>(1), static_cast<size_t>(row_size),
+        static_cast<size_t>(h_lm_var._number_of_pose_params), static_cast<size_t>(1), static_cast<size_t>(h_lm_var._measurement_size),
         &alpha,
-        J_T, J_T_col_size,
-        r,   row_size,
+        h_lm_var.d_J_T, h_lm_var._number_of_pose_params,
+        h_lm_var.d_r,   h_lm_var._measurement_size,
         &beta,
-        g_T, J_T_col_size
+        h_lm_var.d_g_T, h_lm_var._number_of_pose_params
     );
 
     cudaStreamSynchronize(cublas_stream);     // Synchronize on that stream
-
-    // Cleanup
     cublasDestroy(handle);
 
-    // Wait until the Jacobians are ready
-    cudaDeviceSynchronize();  // Wait for kernel to finish to see printf output or errors
+    
+    
+    cudaDeviceSynchronize();
+
+    // printf("--------------\n");
+    // printf("%d, %d \n", h_lm_var._number_of_pose_params, h_lm_var._num_of_landmarks);
+    
+    // print_J_T<<<NUM_BLOCKS(h_lm_var._number_of_pose_params * h_lm_var._num_of_landmarks), NUM_THREADS>>>(d_lm_var);
+    // cudaDeviceSynchronize();
+    
+    err = cudaGetLastError ();
+    if (err != cudaSuccess) {
+        fprintf(stderr, "CUDA error after kernel: %s\n", cudaGetErrorString(err));
+    }
+
+    
+
+    // Debug
+    h_lm_var.J_T_to_txt();
+    h_lm_var.r_to_txt();
+
+    h_lm_var.C_to_txt();
+    h_lm_var.C_inv_to_txt();
+    h_lm_var.g_a_to_txt();
+
+    h_lm_var.A_to_txt();
+    h_lm_var.g_T_to_txt();
+
+    cudaFree(d_lm_var);
+
+    
+
+    // // cublasSdgmm   DIAGONAL MATRIX MULTIPLICATION
+
+   
 
     auto end = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
 
-    duration = std::chrono::duration_cast<std::chrono::milliseconds>(mid - start);
-    std::cout << "Elapsed time for kernel :" << duration.count() << " milliseconds" << std::endl;
-
-    duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - mid);
-    std::cout << "Elapsed time for Matrix multiplication :" << duration.count() << " milliseconds" << std::endl;
+    std::cout << "Elapsed time :" << duration.count() << " milliseconds" << std::endl;
 }

@@ -6,7 +6,7 @@ void Solver::step(int iterations){
     torch::TensorOptions options = torch::TensorOptions().dtype(torch::kFloat).device(torch::kCUDA);
     int num_of_poses        = _incremental_poses.size(0);
     int num_of_landmarks    = _inverse_depths.size(0);
-    int measurement_count   = _counter * 2;
+    int measurement_count   = _counter;
 
     // Allocate memory on device to store the Jacobians and residual
     updateState(

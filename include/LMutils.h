@@ -38,6 +38,8 @@ public:
     
     void A_to_txt();
     void g_T_to_txt();
+
+    void B_to_txt();
 };
 
 

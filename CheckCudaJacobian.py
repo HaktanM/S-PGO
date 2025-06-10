@@ -14,10 +14,10 @@ class Manager():
     def __init__(self):
 
         # Number of keyframes
-        self.n = 1  
+        self.n = 1
 
         # NUmber of landmarks per frame
-        self.m = 1
+        self.m = 2
 
         # Number of total landmarks 
         self.M = self.n * self.m
@@ -80,8 +80,7 @@ if __name__ == "__main__":
     J_T_o, J_alpha_o, r_o = manager.optimizer.getJacobiansAndResidual(manager.simulator.observations)
     H_TT_o = J_T_o.transpose() @ J_T_o
     g_T_o  = J_T_o.transpose() @ r_o
-    H_aa_o = J_alpha_o.transpose() @ J_alpha_o
-    g_a_o  = J_alpha_o.transpose() @ r_o
+    
 
     # print(np.diag(H_aa_o))
     # print(J_T_o)
@@ -95,17 +94,24 @@ if __name__ == "__main__":
 
     H_TT = np.loadtxt("A.txt", delimiter=",")
     g_T  = np.loadtxt("g_T.txt", delimiter=",")
-    visualize_hessian_and_g(H_TT, g_T_o)
-    visualize_hessian_and_g(H_TT_o, g_T_o)
+    # visualize_hessian_and_g(H_TT,   g_T)
+    # visualize_hessian_and_g(H_TT_o, g_T_o)
 
-    
 
     H_aa = np.loadtxt("C.txt", delimiter=",")
+    g_a  = np.loadtxt("g_a.txt", delimiter=",")
+    H_aa_o = J_alpha_o.transpose() @ J_alpha_o
+    g_a_o  = J_alpha_o.transpose() @ r_o
+    # visualize_hessian_and_g(np.diag(H_aa.flatten()), g_a)
+    # visualize_hessian_and_g(H_aa_o, g_a_o)
 
-    print(H_aa)
-    print(H_aa_o)
 
-    visualize_hessian_and_g(np.diag(H_aa.flatten()), g_a_o)
-    visualize_hessian_and_g(H_aa_o, g_a_o)
+    B = np.loadtxt("B.txt", delimiter=",")
+    B_o = J_T_o.transpose() @ J_alpha_o
+
+    print(B)
+    print(B_o)
+    visualize_hessian_and_g(B, g_a)
+    visualize_hessian_and_g(B_o, g_a_o)
 
     

@@ -46,6 +46,7 @@ __global__ void LevenbergMarquardt(
     __shared__ float Kl[9];
     __shared__ float Kl_inv[9];
     __shared__ float Kr[9];
+    __shared__ int thread_max_limit[1];
     // First load the data which is commonly used by all threads to the shared memory
     if (threadIdx.x == 0) {      // Load left camera parameters
         Kl[0] = intrinsics[0][0]; // fx
@@ -58,7 +59,9 @@ __global__ void LevenbergMarquardt(
 
         Kl[6] = 0.0f; 
         Kl[7] = 0.0f; 
-        Kl[8] = 1.0f;   
+        Kl[8] = 1.0f;  
+        
+        thread_max_limit[0] = lm_var->_measurement_count * 2;
     } else if (threadIdx.x == 1){
         Kl_inv[0] = 1.0f / intrinsics[0][0]; //  1 / fx
         Kl_inv[1] = 0.0f; 
@@ -91,11 +94,14 @@ __global__ void LevenbergMarquardt(
 
     // Get the measurement index
     int thread_global_idx = blockIdx.x * blockDim.x + threadIdx.x;
+
+    // Make sure measurement_idx is within bounds 
+    if (thread_global_idx >= thread_max_limit[0]) return;
+
     int measurement_idx   = thread_global_idx / 2;
     int cam_idx           = thread_global_idx % 2;  // 0: Left Cam, 1: Right Cam
 
-    // Make sure measurement_idx is within bounds 
-    if (measurement_idx >= lm_var->_measurement_count) return;
+    
 
     int anchor_idx = anchor_frame_ids[measurement_idx];
     int target_idx = target_frame_ids[measurement_idx];
@@ -163,9 +169,42 @@ __global__ void LevenbergMarquardt(
 
     float del_pn_del_tn[9];
     MatrixMultiplication(del_pn_del_bn, del_bn_del_tn, del_pn_del_tn, 3, 3, 3);
+    
+    // Compute J_alpha
+    float del_tn_del_ta[9];
+    getRotFromT(T_anchor_to_target, del_tn_del_ta);
+
+    float del_ta_del_alpha[3];
+    del_ta_del_alpha[0] = - t_feat_in_anchor[0] / alpha;
+    del_ta_del_alpha[1] = - t_feat_in_anchor[1] / alpha;
+    del_ta_del_alpha[2] = - t_feat_in_anchor[2] / alpha;
+
+    
+    float del_pn_del_ta[9];
+    float del_pn_del_alpha[3];
+
+    MatrixMultiplication(del_pn_del_tn, del_tn_del_ta, del_pn_del_ta, 3, 3, 3);
+    MatrixMultiplication(del_pn_del_ta, del_ta_del_alpha, del_pn_del_alpha, 3, 3, 1);
+    float del_fxy_del_alpha[2];
+    for(int xy_idx=0; xy_idx<2; xy_idx++){
+
+        int J_alpha_row_idx = 4 * measurement_idx + xy_idx + 2 * cam_idx;
+        // int J_alpha_col_idx = feat_idx;
+        // // Fill J_alpha
+        // J_alpha[J_alpha_row_idx * J_alpha_col_size + J_alpha_col_idx] = del_pn_del_alpha[row_idx];
+
+        // Compute the residual
+        lm_var->d_r[J_alpha_row_idx] = observations[target_idx][feat_idx][cam_idx][xy_idx] - p_in_target_est[xy_idx];
+        
+        // Fill H_aa and g_alpha
+        atomicAdd(&lm_var->d_C[feat_idx], del_pn_del_alpha[xy_idx] * del_pn_del_alpha[xy_idx]);
+        atomicAdd(&lm_var->d_g_a[feat_idx], del_pn_del_alpha[xy_idx] * lm_var->d_r[J_alpha_row_idx]);
+
+        del_fxy_del_alpha[xy_idx] = del_pn_del_alpha[xy_idx];
+    }
 
 
-    // Compute J_T
+    // Compute B = J_T and J_T^T @ J_alpha
     for(int state_idx = anchor_idx; state_idx < target_idx; state_idx++){
         // Load state to global pose
         float T_state_to_glob[16];
@@ -201,53 +240,36 @@ __global__ void LevenbergMarquardt(
                 int J_T_row_idx = 4 * measurement_idx + xy_idx + 2 * cam_idx;
                 int J_T_col_idx = 6 * state_idx + col_idx;
                 lm_var->d_J_T[J_T_row_idx * lm_var->_number_of_pose_params + J_T_col_idx] = del_pn_del_xi[6 * xy_idx + col_idx];
-                // printf("%d, %d, %.5f\n", J_T_row_idx, J_T_col_idx, lm_var->d_J_T[J_T_row_idx * lm_var->_number_of_pose_params + J_T_col_idx]);
             }
         }
     }
-    
-    // Compute J_alpha
-    float del_tn_del_ta[9];
-    getRotFromT(T_anchor_to_target, del_tn_del_ta);
 
-    float del_ta_del_alpha[3];
-    del_ta_del_alpha[0] = - t_feat_in_anchor[0] / alpha;
-    del_ta_del_alpha[1] = - t_feat_in_anchor[1] / alpha;
-    del_ta_del_alpha[2] = - t_feat_in_anchor[2] / alpha;
+    // Finally, compute B
+    for(int state_idx = anchor_idx; state_idx < target_idx; state_idx++){
+        // Fill the Jacobian
+        for(int xy_idx=0; xy_idx<2; xy_idx++){
+            for(int col_idx=0; col_idx<6; col_idx++){
+                int B_row_idx = 6 * state_idx + col_idx;
+                int B_col_idx = feat_idx;
+                
+                int JT_row_idx = 4 * measurement_idx + 2 * cam_idx + xy_idx;
+                int JT_col_idx = 6 * state_idx + col_idx;
 
-    
-    float del_pn_del_ta[9];
-    float del_pn_del_alpha[3];
+                float del_f_del_t = lm_var->d_J_T[JT_row_idx * lm_var->_number_of_pose_params + JT_col_idx];
+                float del_f_del_a = del_fxy_del_alpha[xy_idx];
 
-    MatrixMultiplication(del_pn_del_tn, del_tn_del_ta, del_pn_del_ta, 3, 3, 3);
-    MatrixMultiplication(del_pn_del_ta, del_ta_del_alpha, del_pn_del_alpha, 3, 3, 1);
-
-    
-    for(int xy_idx=0; xy_idx<2; xy_idx++){
-
-        int J_alpha_row_idx = 4 * measurement_idx + xy_idx + 2 * cam_idx;
-        // int J_alpha_col_idx = feat_idx;
-        // // Fill J_alpha
-        // J_alpha[J_alpha_row_idx * J_alpha_col_size + J_alpha_col_idx] = del_pn_del_alpha[row_idx];
-
-        // Compute the residual
-        lm_var->d_r[J_alpha_row_idx] = observations[target_idx][feat_idx][cam_idx][xy_idx] - p_in_target_est[xy_idx];
-        
-        // Fill H_aa and g_alpha
-        atomicAdd(&lm_var->d_C[feat_idx], del_pn_del_alpha[xy_idx] * del_pn_del_alpha[xy_idx]);
-        atomicAdd(&lm_var->d_g_a[feat_idx], del_pn_del_alpha[xy_idx] * lm_var->d_r[J_alpha_row_idx]);
+                atomicAdd(&lm_var->d_B[B_row_idx * lm_var->_num_of_landmarks + B_col_idx], del_f_del_t * del_f_del_a);
+            }
+        }
     }
 }
 
 
 
-__global__ void print_J_T(LMvariables *lm_var){
+__global__ void printArr(float *arr, int dim){
     int thread_global_idx = blockIdx.x * blockDim.x + threadIdx.x;
-    if(thread_global_idx == 0){
-        printf("lm_var->d_J_T : \n");
-        for(int idx=0; idx<lm_var->_number_of_pose_params * lm_var->_measurement_size; idx++){
-            printf("%.5f, ", lm_var->d_J_T[idx]);
-        }
+    if(thread_global_idx < dim){
+        printf("%d : %.5f\n", thread_global_idx, arr[thread_global_idx]);
     }
 }
 
@@ -303,9 +325,8 @@ void updateState(
     // We need a pointer to our variables in cuda. 
     cudaMemcpy(d_lm_var, &h_lm_var, sizeof(LMvariables), cudaMemcpyHostToDevice);
 
-    
     // Compute the Jacobians and residual
-    LevenbergMarquardt<<<NUM_BLOCKS(h_lm_var._measurement_count), NUM_THREADS>>>(
+    LevenbergMarquardt<<<NUM_BLOCKS(h_lm_var._measurement_count * 2), NUM_THREADS>>>(
         observations.packed_accessor32<float,4,torch::RestrictPtrTraits>(),
         poses.packed_accessor32<float,4,torch::RestrictPtrTraits>(),
         inverse_depths.packed_accessor32<float,1,torch::RestrictPtrTraits>(),
@@ -319,6 +340,7 @@ void updateState(
 
     // Wait untill kernel is completed
     cudaDeviceSynchronize();
+    
 
     
     float eps{0.001};
@@ -373,21 +395,18 @@ void updateState(
     cudaStreamSynchronize(cublas_stream);     // Synchronize on that stream
     cublasDestroy(handle);
 
-    
-    
     cudaDeviceSynchronize();
 
-    // printf("--------------\n");
-    // printf("%d, %d \n", h_lm_var._number_of_pose_params, h_lm_var._num_of_landmarks);
-    
-    // print_J_T<<<NUM_BLOCKS(h_lm_var._number_of_pose_params * h_lm_var._num_of_landmarks), NUM_THREADS>>>(d_lm_var);
-    // cudaDeviceSynchronize();
     
     err = cudaGetLastError ();
     if (err != cudaSuccess) {
         fprintf(stderr, "CUDA error after kernel: %s\n", cudaGetErrorString(err));
     }
 
+    auto end = std::chrono::high_resolution_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+
+    std::cout << "Elapsed time :" << duration.count() << " milliseconds" << std::endl;
     
 
     // Debug
@@ -401,16 +420,10 @@ void updateState(
     h_lm_var.A_to_txt();
     h_lm_var.g_T_to_txt();
 
+    h_lm_var.B_to_txt();
+
+
     cudaFree(d_lm_var);
 
-    
-
     // // cublasSdgmm   DIAGONAL MATRIX MULTIPLICATION
-
-   
-
-    auto end = std::chrono::high_resolution_clock::now();
-    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
-
-    std::cout << "Elapsed time :" << duration.count() << " milliseconds" << std::endl;
 }

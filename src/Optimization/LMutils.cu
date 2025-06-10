@@ -5,7 +5,7 @@ void LMvariables::allocateMemory(int num_of_poses, int num_of_landmarks, int mea
 
     _number_of_pose_params = num_of_poses * 6;
     _num_of_landmarks      = num_of_landmarks;
-    _measurement_size      = measurement_count *2;
+    _measurement_size      = measurement_count * 4;
 
     _measurement_count     = measurement_count;
     _num_of_poses          = num_of_poses;
@@ -239,6 +239,36 @@ void LMvariables::g_T_to_txt(){
 
     free(h_g_T);
 }
+
+void LMvariables::B_to_txt(){
+    // First load the matrix C into CPU
+    printf("CP1\n");
+
+    float *h_B;
+    h_B =(float *) malloc( _number_of_pose_params * _num_of_landmarks * sizeof(float));
+    cudaMemcpy(h_B, d_B,   _number_of_pose_params * _num_of_landmarks * sizeof(float), cudaMemcpyDeviceToHost);
+
+    // Create and open a text file
+    std::ofstream txt_file("B.txt");
+
+    // Write the C matrix into the txt
+    for(int row_idx=0; row_idx<_number_of_pose_params; row_idx++){
+        for(int col_idx=0; col_idx<_num_of_landmarks; col_idx++){
+            txt_file << h_B[row_idx * _num_of_landmarks + col_idx];
+            if(col_idx<(_num_of_landmarks-1)){
+                txt_file << ", ";
+            }
+        }
+        txt_file << std::endl;
+    }
+    
+
+    // Close the file
+    txt_file.close();
+
+    free(h_B);
+}
+
 
 __device__ void getRotFromT(const float *T, float *R){
     R[0] = T[0];

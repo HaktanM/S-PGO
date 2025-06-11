@@ -14,10 +14,10 @@ class Manager():
     def __init__(self):
 
         # Number of keyframes
-        self.n = 1
+        self.n = 12
 
         # NUmber of landmarks per frame
-        self.m = 2
+        self.m = 128 
 
         # Number of total landmarks 
         self.M = self.n * self.m
@@ -109,9 +109,25 @@ if __name__ == "__main__":
     B = np.loadtxt("B.txt", delimiter=",")
     B_o = J_T_o.transpose() @ J_alpha_o
 
-    print(B)
-    print(B_o)
     visualize_hessian_and_g(B, g_a)
     visualize_hessian_and_g(B_o, g_a_o)
+
+    B_C_inv_o = B_o @ np.linalg.inv(H_aa_o + np.eye(H_aa_o.shape[0])*0.0001)
+    B_C_inv   = np.loadtxt("B_C_inv.txt", delimiter=",")
+    
+
+    print("B_C_inv_o:")
+    visualize_hessian_and_g(B_C_inv_o, g_a)
+    visualize_hessian_and_g(B_C_inv, g_a_o)
+
+
+    B_C_inv_B_T_o = B_C_inv_o @ B_o.transpose()
+    B_C_inv_B_T   = np.loadtxt("B_C_inv_B_T.txt", delimiter=",")
+
+    print("B_C_inv_B_T")
+    visualize_hessian_and_g(B_C_inv_B_T_o, g_a)
+    visualize_hessian_and_g(B_C_inv_B_T, g_a_o)
+
+    
 
     

@@ -258,7 +258,7 @@ __global__ void LevenbergMarquardt(
                 float del_f_del_t = lm_var->d_J_T[JT_row_idx * lm_var->_number_of_pose_params + JT_col_idx];
                 float del_f_del_a = del_fxy_del_alpha[xy_idx];
 
-                atomicAdd(&lm_var->d_B[B_row_idx * lm_var->_num_of_landmarks + B_col_idx], del_f_del_t * del_f_del_a);
+                atomicAdd(&lm_var->d_B[B_row_idx * lm_var->_number_of_landmarks + B_col_idx], del_f_del_t * del_f_del_a);
             }
         }
     }
@@ -273,6 +273,31 @@ __global__ void printArr(float *arr, int dim){
     }
 }
 
+
+__global__ void compute_B_C_inv(LMvariables *lm_var){
+    __shared__ int s_row_size;
+    __shared__ int s_col_size;
+    __shared__ int s_max_size;
+
+    if(threadIdx.x == 0){
+        s_row_size = lm_var->_number_of_pose_params;
+        s_col_size = lm_var->_number_of_landmarks;
+        s_max_size = s_row_size * s_col_size;
+    }
+
+    // Make sure that the parameters are loaded to the shared memory
+    __syncthreads();
+
+    // Get the measurement index
+    int thread_global_idx = blockIdx.x * blockDim.x + threadIdx.x;
+
+    // Make sure measurement_idx is within bounds 
+    if (thread_global_idx >= s_max_size) return;
+
+    int col_idx   = thread_global_idx % s_col_size; 
+
+    lm_var->d_B_C_inv[thread_global_idx] = lm_var->d_B[thread_global_idx] / (lm_var->d_C[col_idx] - lm_var->_eps);
+}
 
 void updateState(
     torch::Tensor observations,
@@ -341,18 +366,10 @@ void updateState(
     // Wait untill kernel is completed
     cudaDeviceSynchronize();
     
+    // Compute the inverse of BC_inv
+    compute_B_C_inv<<<NUM_BLOCKS(h_lm_var._number_of_pose_params * h_lm_var._number_of_landmarks), NUM_THREADS>>>(d_lm_var);
 
     
-    float eps{0.001};
-    // Compute the inverse of C
-    elementwiseInverseKernel<<<NUM_BLOCKS(h_lm_var._num_of_landmarks), NUM_THREADS>>>(
-        h_lm_var.d_C,
-        h_lm_var.d_C_inv,
-        eps,
-        h_lm_var._num_of_landmarks
-    );
-
-    cudaDeviceSynchronize();
     
     cudaError_t err = cudaGetLastError ();
     if (err != cudaSuccess) {
@@ -380,6 +397,7 @@ void updateState(
         &beta,
         h_lm_var.d_A, h_lm_var._number_of_pose_params
     );
+    // Output is symmetric, hence, it does not matter if it is row major or column major.
 
     err_cublas = cublasSgemm(
         handle,
@@ -391,10 +409,9 @@ void updateState(
         &beta,
         h_lm_var.d_g_T, h_lm_var._number_of_pose_params
     );
+    // Output is a vector, hence, it does not matter if it is row major or column major.
 
     cudaStreamSynchronize(cublas_stream);     // Synchronize on that stream
-    cublasDestroy(handle);
-
     cudaDeviceSynchronize();
 
     
@@ -402,6 +419,33 @@ void updateState(
     if (err != cudaSuccess) {
         fprintf(stderr, "CUDA error after kernel: %s\n", cudaGetErrorString(err));
     }
+
+    // Now we are ready to compute the rest
+    // DON'T FORGET THAT, I have adopted the row-major array indexing for representing a matrix as an array.
+    // However, cuBLAS assumes column-major indexing. 
+    // Hence, cuBLAS percieves my arrays as their transpose
+
+    // Compute B_C_inv_B_T
+    err_cublas = cublasSgemm(
+        handle,
+        CUBLAS_OP_T, CUBLAS_OP_N,
+        static_cast<size_t>(h_lm_var._number_of_pose_params), static_cast<size_t>(h_lm_var._number_of_pose_params), static_cast<size_t>(h_lm_var._number_of_landmarks),
+        &alpha,
+        h_lm_var.d_B_C_inv, h_lm_var._number_of_landmarks,     
+        h_lm_var.d_B, h_lm_var._number_of_landmarks,
+        &beta,
+        h_lm_var.d_B_C_inv_B_T, h_lm_var._number_of_pose_params
+    );
+    // Output is symmetric, hence, it does not matter if it is row major or column major.
+
+    cudaDeviceSynchronize();
+    cudaStreamSynchronize(cublas_stream);     // Synchronize on that stream
+
+    err = cudaGetLastError ();
+    if (err != cudaSuccess) {
+        fprintf(stderr, "CUDA error after kernel: %s\n", cudaGetErrorString(err));
+    }
+    cublasDestroy(handle);
 
     auto end = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
@@ -421,9 +465,12 @@ void updateState(
     h_lm_var.g_T_to_txt();
 
     h_lm_var.B_to_txt();
+    h_lm_var.B_C_inv_to_txt();
+    h_lm_var.B_C_inv_B_T_to_txt();
 
 
     cudaFree(d_lm_var);
+    h_lm_var.freeAll();
 
     // // cublasSdgmm   DIAGONAL MATRIX MULTIPLICATION
 }

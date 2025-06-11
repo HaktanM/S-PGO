@@ -4,7 +4,7 @@
 void LMvariables::allocateMemory(int num_of_poses, int num_of_landmarks, int measurement_count){
 
     _number_of_pose_params = num_of_poses * 6;
-    _num_of_landmarks      = num_of_landmarks;
+    _number_of_landmarks   = num_of_landmarks;
     _measurement_size      = measurement_count * 4;
 
     _measurement_count     = measurement_count;
@@ -24,18 +24,27 @@ void LMvariables::allocateMemory(int num_of_poses, int num_of_landmarks, int mea
     cudaMalloc((void**)&d_g_T, _number_of_pose_params * sizeof(float));
     cudaMemset(d_g_T, 0,       _number_of_pose_params * sizeof(float)); 
        
-    cudaMalloc((void**)&d_C,     num_of_landmarks * sizeof(float));
-    cudaMemset(d_C, 0,           num_of_landmarks * sizeof(float)); 
+    cudaMalloc((void**)&d_C,     _number_of_landmarks * sizeof(float));
+    cudaMemset(d_C, 0,           _number_of_landmarks * sizeof(float)); 
 
-    cudaMalloc((void**)&d_C_inv, num_of_landmarks * sizeof(float));
-    cudaMemset(d_C_inv, 0,       num_of_landmarks * sizeof(float)); 
+    cudaMalloc((void**)&d_C_inv, _number_of_landmarks * sizeof(float));
+    cudaMemset(d_C_inv, 0,       _number_of_landmarks * sizeof(float)); 
 
 
-    cudaMalloc((void**)&d_g_a,   num_of_landmarks * sizeof(float));
-    cudaMemset(d_g_a, 0,         num_of_landmarks * sizeof(float)); 
+    cudaMalloc((void**)&d_g_a,   _number_of_landmarks * sizeof(float));
+    cudaMemset(d_g_a, 0,         _number_of_landmarks * sizeof(float)); 
 
-    cudaMalloc((void**)&d_B, _number_of_pose_params * num_of_landmarks * sizeof(float));
-    cudaMemset(d_B, 0,       _number_of_pose_params * num_of_landmarks * sizeof(float)); 
+    cudaMalloc((void**)&d_B, _number_of_pose_params * _number_of_landmarks * sizeof(float));
+    cudaMemset(d_B, 0,       _number_of_pose_params * _number_of_landmarks * sizeof(float)); 
+
+    cudaMalloc((void**)&d_B_C_inv, _number_of_pose_params * _number_of_landmarks * sizeof(float));
+    cudaMemset(d_B_C_inv, 0,       _number_of_pose_params * _number_of_landmarks * sizeof(float)); 
+
+    cudaMalloc((void**)&d_B_C_inv_B_T, _number_of_pose_params * _number_of_pose_params * sizeof(float));
+    cudaMemset(d_B_C_inv_B_T, 0,       _number_of_pose_params * _number_of_pose_params * sizeof(float)); 
+
+    cudaMalloc((void**)&d_B_C_inv_g_a, _number_of_pose_params * sizeof(float));
+    cudaMemset(d_B_C_inv_g_a, 0,       _number_of_pose_params * sizeof(float)); 
 };
 
 void LMvariables::freeAll(){
@@ -49,10 +58,14 @@ void LMvariables::freeAll(){
     cudaFree(d_C_inv);
     cudaFree(d_g_a);
 
-    cudaFree(d_B);
+    cudaFree(d_B); 
+
+    cudaFree(d_B_C_inv);
+    cudaFree(d_B_C_inv_B_T);
+    cudaFree(d_B_C_inv_g_a);
 
     _number_of_pose_params = 0;
-    _num_of_landmarks      = 0;
+    _number_of_landmarks   = 0;
     _measurement_size      = 0;
     _measurement_count     = 0;
     _num_of_poses          = 0;
@@ -113,16 +126,16 @@ void LMvariables::r_to_txt(){
 void LMvariables::C_to_txt(){
     // First load the matrix C into CPU
     float *h_C;
-    h_C =(float *) malloc( _num_of_landmarks * sizeof(float));
-    cudaMemcpy(h_C, d_C, _num_of_landmarks * sizeof(float), cudaMemcpyDeviceToHost);
+    h_C =(float *) malloc( _number_of_landmarks * sizeof(float));
+    cudaMemcpy(h_C, d_C, _number_of_landmarks * sizeof(float), cudaMemcpyDeviceToHost);
 
     // Create and open a text file
     std::ofstream txt_file("C.txt");
 
     // Write the C matrix into the txt
-    for(int idx=0; idx<_num_of_landmarks; idx++){
+    for(int idx=0; idx<_number_of_landmarks; idx++){
         txt_file << h_C[idx];
-        if(idx<(_num_of_landmarks-1)){
+        if(idx<(_number_of_landmarks-1)){
             txt_file << ", ";
         }
     }
@@ -139,16 +152,16 @@ void LMvariables::C_to_txt(){
 void LMvariables::C_inv_to_txt(){
     // First load the matrix C into CPU
     float *h_C_inv;
-    h_C_inv =  (float *) malloc( _num_of_landmarks * sizeof(float));
-    cudaMemcpy(h_C_inv, d_C_inv, _num_of_landmarks * sizeof(float), cudaMemcpyDeviceToHost);
+    h_C_inv =  (float *) malloc( _number_of_landmarks * sizeof(float));
+    cudaMemcpy(h_C_inv, d_C_inv, _number_of_landmarks * sizeof(float), cudaMemcpyDeviceToHost);
 
     // Create and open a text file
     std::ofstream txt_file("C_inv.txt");
 
     // Write the C matrix into the txt
-    for(int idx=0; idx<_num_of_landmarks; idx++){
+    for(int idx=0; idx<_number_of_landmarks; idx++){
         txt_file << h_C_inv[idx];
-        if(idx<(_num_of_landmarks-1)){
+        if(idx<(_number_of_landmarks-1)){
             txt_file << ", ";
         }
     }
@@ -164,16 +177,16 @@ void LMvariables::C_inv_to_txt(){
 void LMvariables::g_a_to_txt(){
     // First load the matrix C into CPU
     float *h_g_a;
-    h_g_a =(float *) malloc( _num_of_landmarks * sizeof(float));
-    cudaMemcpy(h_g_a, d_g_a, _num_of_landmarks * sizeof(float), cudaMemcpyDeviceToHost);
+    h_g_a =(float *) malloc( _number_of_landmarks * sizeof(float));
+    cudaMemcpy(h_g_a, d_g_a, _number_of_landmarks * sizeof(float), cudaMemcpyDeviceToHost);
 
     // Create and open a text file
     std::ofstream txt_file("g_a.txt");
 
     // Write the C matrix into the txt
-    for(int row_idx=0; row_idx<_num_of_landmarks; row_idx++){
+    for(int row_idx=0; row_idx<_number_of_landmarks; row_idx++){
         txt_file << h_g_a[row_idx];
-        if(row_idx<(_num_of_landmarks-1)){
+        if(row_idx<(_number_of_landmarks-1)){
             txt_file << ", ";
         }
     }
@@ -242,20 +255,18 @@ void LMvariables::g_T_to_txt(){
 
 void LMvariables::B_to_txt(){
     // First load the matrix C into CPU
-    printf("CP1\n");
-
     float *h_B;
-    h_B =(float *) malloc( _number_of_pose_params * _num_of_landmarks * sizeof(float));
-    cudaMemcpy(h_B, d_B,   _number_of_pose_params * _num_of_landmarks * sizeof(float), cudaMemcpyDeviceToHost);
+    h_B =(float *) malloc( _number_of_pose_params * _number_of_landmarks * sizeof(float));
+    cudaMemcpy(h_B, d_B,   _number_of_pose_params * _number_of_landmarks * sizeof(float), cudaMemcpyDeviceToHost);
 
     // Create and open a text file
     std::ofstream txt_file("B.txt");
 
     // Write the C matrix into the txt
     for(int row_idx=0; row_idx<_number_of_pose_params; row_idx++){
-        for(int col_idx=0; col_idx<_num_of_landmarks; col_idx++){
-            txt_file << h_B[row_idx * _num_of_landmarks + col_idx];
-            if(col_idx<(_num_of_landmarks-1)){
+        for(int col_idx=0; col_idx<_number_of_landmarks; col_idx++){
+            txt_file << h_B[row_idx * _number_of_landmarks + col_idx];
+            if(col_idx<(_number_of_landmarks-1)){
                 txt_file << ", ";
             }
         }
@@ -267,6 +278,63 @@ void LMvariables::B_to_txt(){
     txt_file.close();
 
     free(h_B);
+}
+
+
+void LMvariables::B_C_inv_to_txt(){
+    // First load the matrix C into CPU
+    float *h_B_C_inv;
+    h_B_C_inv =(float *) malloc( _number_of_pose_params * _number_of_landmarks * sizeof(float));
+    cudaMemcpy(h_B_C_inv, d_B_C_inv,   _number_of_pose_params * _number_of_landmarks * sizeof(float), cudaMemcpyDeviceToHost);
+
+    // Create and open a text file
+    std::ofstream txt_file("B_C_inv.txt");
+
+    // Write the C matrix into the txt
+    for(int row_idx=0; row_idx<_number_of_pose_params; row_idx++){
+        for(int col_idx=0; col_idx<_number_of_landmarks; col_idx++){
+            txt_file << h_B_C_inv[row_idx * _number_of_landmarks + col_idx];
+            if(col_idx<(_number_of_landmarks-1)){
+                txt_file << ", ";
+            }
+        }
+        txt_file << std::endl;
+    }
+    
+
+    // Close the file
+    txt_file.close();
+
+    free(h_B_C_inv);
+}
+
+
+
+void LMvariables::B_C_inv_B_T_to_txt(){
+    // First load the matrix C into CPU
+    float *h_B_inv_B_T;
+    h_B_inv_B_T =(float *) malloc( _number_of_pose_params * _number_of_pose_params * sizeof(float));
+    cudaMemcpy(h_B_inv_B_T, d_B_C_inv_B_T,   _number_of_pose_params * _number_of_pose_params * sizeof(float), cudaMemcpyDeviceToHost);
+
+    // Create and open a text file
+    std::ofstream txt_file("B_C_inv_B_T.txt");
+
+    // Write the C matrix into the txt
+    for(int row_idx=0; row_idx<_number_of_pose_params; row_idx++){
+        for(int col_idx=0; col_idx<_number_of_pose_params; col_idx++){
+            txt_file << h_B_inv_B_T[row_idx * _number_of_pose_params + col_idx];
+            if(col_idx<(_number_of_pose_params-1)){
+                txt_file << ", ";
+            }
+        }
+        txt_file << std::endl;
+    }
+    
+
+    // Close the file
+    txt_file.close();
+
+    free(h_B_inv_B_T);
 }
 
 

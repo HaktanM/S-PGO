@@ -27,10 +27,6 @@ void LMvariables::allocateMemory(int num_of_poses, int num_of_landmarks, int mea
     cudaMalloc((void**)&d_C,     _number_of_landmarks * sizeof(float));
     cudaMemset(d_C, 0,           _number_of_landmarks * sizeof(float)); 
 
-    cudaMalloc((void**)&d_C_inv, _number_of_landmarks * sizeof(float));
-    cudaMemset(d_C_inv, 0,       _number_of_landmarks * sizeof(float)); 
-
-
     cudaMalloc((void**)&d_g_a,   _number_of_landmarks * sizeof(float));
     cudaMemset(d_g_a, 0,         _number_of_landmarks * sizeof(float)); 
 
@@ -45,6 +41,12 @@ void LMvariables::allocateMemory(int num_of_poses, int num_of_landmarks, int mea
 
     cudaMalloc((void**)&d_B_C_inv_g_a, _number_of_pose_params * sizeof(float));
     cudaMemset(d_B_C_inv_g_a, 0,       _number_of_pose_params * sizeof(float)); 
+
+    cudaMalloc((void**)&d_H_schur, _number_of_pose_params * _number_of_pose_params * sizeof(float));
+    cudaMemset(d_H_schur, 0,       _number_of_pose_params * _number_of_pose_params* sizeof(float)); 
+
+    cudaMalloc((void**)&d_g_schur, _number_of_pose_params * sizeof(float));
+    cudaMemset(d_g_schur, 0,       _number_of_pose_params * sizeof(float)); 
 };
 
 void LMvariables::freeAll(){
@@ -55,7 +57,6 @@ void LMvariables::freeAll(){
     cudaFree(d_g_T);
 
     cudaFree(d_C);
-    cudaFree(d_C_inv);
     cudaFree(d_g_a);
 
     cudaFree(d_B); 
@@ -63,6 +64,9 @@ void LMvariables::freeAll(){
     cudaFree(d_B_C_inv);
     cudaFree(d_B_C_inv_B_T);
     cudaFree(d_B_C_inv_g_a);
+
+    cudaFree(d_H_schur);
+    cudaFree(d_g_schur);
 
     _number_of_pose_params = 0;
     _number_of_landmarks   = 0;
@@ -148,31 +152,6 @@ void LMvariables::C_to_txt(){
 
 };
 
-
-void LMvariables::C_inv_to_txt(){
-    // First load the matrix C into CPU
-    float *h_C_inv;
-    h_C_inv =  (float *) malloc( _number_of_landmarks * sizeof(float));
-    cudaMemcpy(h_C_inv, d_C_inv, _number_of_landmarks * sizeof(float), cudaMemcpyDeviceToHost);
-
-    // Create and open a text file
-    std::ofstream txt_file("C_inv.txt");
-
-    // Write the C matrix into the txt
-    for(int idx=0; idx<_number_of_landmarks; idx++){
-        txt_file << h_C_inv[idx];
-        if(idx<(_number_of_landmarks-1)){
-            txt_file << ", ";
-        }
-    }
-    txt_file << std::endl;
-
-    // Close the file
-    txt_file.close();
-
-    free(h_C_inv);
-
-};
 
 void LMvariables::g_a_to_txt(){
     // First load the matrix C into CPU
@@ -335,6 +314,54 @@ void LMvariables::B_C_inv_B_T_to_txt(){
     txt_file.close();
 
     free(h_B_inv_B_T);
+}
+
+
+void LMvariables::H_schur_to_txt(){
+    // First load the matrix C into CPU
+    float *h_H_schur;
+    h_H_schur =(float *) malloc( _number_of_pose_params * _number_of_pose_params * sizeof(float));
+    cudaMemcpy(h_H_schur, d_H_schur,   _number_of_pose_params * _number_of_pose_params * sizeof(float), cudaMemcpyDeviceToHost);
+
+    // Create and open a text file
+    std::ofstream txt_file("H_schur.txt");
+
+    // Write the C matrix into the txt
+    for(int row_idx=0; row_idx<_number_of_pose_params; row_idx++){
+        for(int col_idx=0; col_idx<_number_of_pose_params; col_idx++){
+            txt_file << h_H_schur[row_idx * _number_of_pose_params + col_idx];
+            if(col_idx<(_number_of_pose_params-1)){
+                txt_file << ", ";
+            }
+        }
+        txt_file << std::endl;
+    }
+
+    // Close the file
+    txt_file.close();
+    free(h_H_schur);
+}
+
+
+
+void LMvariables::g_schur_to_txt(){
+    // First load the matrix C into CPU
+    float *h_g_schur;
+    h_g_schur =(float *) malloc( _number_of_pose_params * sizeof(float));
+    cudaMemcpy(h_g_schur, d_g_schur,   _number_of_pose_params * sizeof(float), cudaMemcpyDeviceToHost);
+
+    // Create and open a text file
+    std::ofstream txt_file("g_schur.txt");
+
+    // Write the C matrix into the txt
+    for(int col_idx=0; col_idx<_number_of_pose_params; col_idx++){
+        txt_file << h_g_schur[col_idx];
+        txt_file << std::endl;
+    }
+
+    // Close the file
+    txt_file.close();
+    free(h_g_schur);
 }
 
 

@@ -336,6 +336,8 @@ class Optimizer():
                     estimation, _ = self.cam.project(T_cam_in_global=T_cn_to_g, t_feat_in_global=t_feat_in_g, right=right)
                     residual      = observation.reshape(3) - estimation.reshape(3)
 
+                    res_mag_square = (residual[0])**2 + (residual[1])**2
+                    cauchy_weight = np.sqrt( 1 / ( 1.0 + (res_mag_square / 9.0) ))
 
                     # Jacobian of the measurement with respect to incremental states
                     for i in range(anchor_idx,projection_idx):
@@ -346,14 +348,14 @@ class Optimizer():
                         J_T_col_idx = 6 * i
                         
                         # Fill the residual and Jacobian matrices   
-                        J_T[row_idx:row_idx+2, J_T_col_idx:J_T_col_idx+6] = del_pn_del_xi[:2, :] 
+                        J_T[row_idx:row_idx+2, J_T_col_idx:J_T_col_idx+6] = cauchy_weight * del_pn_del_xi[:2, :] 
                     
                     # Jacobian with respect to
                     del_pn_del_alpha = self.del_pn_del_alpha(pa_hom=pa_hom, alpha=alpha, poses=estimated_global_poses, anchor_idx=anchor_idx, projection_idx=projection_idx, right=right)
                     
                     J_alpha_col_idx  = landmark_idx
-                    J_alpha[row_idx:row_idx+2, J_alpha_col_idx:J_alpha_col_idx+1] = del_pn_del_alpha[:2, :] 
-                    r[row_idx:row_idx+2,0] = residual[:2]
+                    J_alpha[row_idx:row_idx+2, J_alpha_col_idx:J_alpha_col_idx+1] = cauchy_weight * del_pn_del_alpha[:2, :] 
+                    r[row_idx:row_idx+2,0] = cauchy_weight * residual[:2]
                     row_idx += 2
 
         return J_T, J_alpha, r

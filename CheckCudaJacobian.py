@@ -75,58 +75,48 @@ class Manager():
 
 if __name__ == "__main__":
     manager = Manager()
-    manager.solver.step(1)
 
-    J_T_o, J_alpha_o, r_o = manager.optimizer.getJacobiansAndResidual(manager.simulator.observations)
-    H_TT_o = J_T_o.transpose() @ J_T_o
-    g_T_o  = J_T_o.transpose() @ r_o
+    t_start = time.monotonic_ns()
+    manager.solver.step(5)
+    t_stop  = time.monotonic_ns()
+
+    print(f"Total elapsed_time : { (t_stop - t_start) * (1e-6) } milliseconds")
+    # J_T_o, J_alpha_o, r_o = manager.optimizer.getJacobiansAndResidual(manager.simulator.observations)
+    # H_TT_o = J_T_o.transpose() @ J_T_o
+    # g_T_o  = J_T_o.transpose() @ r_o
     
+    # H_aa_o = J_alpha_o.transpose() @ J_alpha_o
+    # g_a_o  = J_alpha_o.transpose() @ r_o
+    # B_o = J_T_o.transpose() @ J_alpha_o
+    # B_C_inv_o = B_o @ np.linalg.inv(H_aa_o + np.eye(H_aa_o.shape[0])*0.0001)
+    # B_C_inv_B_T_o = B_C_inv_o @ B_o.transpose()
 
-    # print(np.diag(H_aa_o))
-    # print(J_T_o)
+    # H_schur_o = H_TT_o - B_C_inv_B_T_o
+    # g_schur_o = g_T_o  - B_C_inv_o @ g_a_o
 
-    J_T = np.loadtxt("J_T.txt", delimiter=",")
-    r = np.loadtxt("r.txt", delimiter=",")
-    # print(J_T.shape)
-    visualize_jacobian_and_residual_to_cv(J_T, r)
-    visualize_jacobian_and_residual_to_cv(J_T_o[:J_T.shape[0],:], r_o[:r.shape[0],:])
+    # H_schur = np.loadtxt("H_schur.txt", delimiter=",")
+    # g_schur = np.loadtxt("g_schur.txt", delimiter=",")
 
+    # H_TT = np.loadtxt("A.txt", delimiter=",")
+    # B_C_inv_B_T = np.loadtxt("B_C_inv_B_T.txt", delimiter=",")
 
-    H_TT = np.loadtxt("A.txt", delimiter=",")
-    g_T  = np.loadtxt("g_T.txt", delimiter=",")
-    # visualize_hessian_and_g(H_TT,   g_T)
-    # visualize_hessian_and_g(H_TT_o, g_T_o)
+    # J_T = np.loadtxt("J_T.txt", delimiter=",")
+    # r = np.loadtxt("r.txt", delimiter=",")
 
-
-    H_aa = np.loadtxt("C.txt", delimiter=",")
-    g_a  = np.loadtxt("g_a.txt", delimiter=",")
-    H_aa_o = J_alpha_o.transpose() @ J_alpha_o
-    g_a_o  = J_alpha_o.transpose() @ r_o
-    # visualize_hessian_and_g(np.diag(H_aa.flatten()), g_a)
-    # visualize_hessian_and_g(H_aa_o, g_a_o)
-
-
-    B = np.loadtxt("B.txt", delimiter=",")
-    B_o = J_T_o.transpose() @ J_alpha_o
-
-    visualize_hessian_and_g(B, g_a)
-    visualize_hessian_and_g(B_o, g_a_o)
-
-    B_C_inv_o = B_o @ np.linalg.inv(H_aa_o + np.eye(H_aa_o.shape[0])*0.0001)
-    B_C_inv   = np.loadtxt("B_C_inv.txt", delimiter=",")
+    # visualize_jacobian_and_residual_to_cv(J_T  , r)
+    # visualize_jacobian_and_residual_to_cv(J_T_o[:J_T.shape[0], :], r_o[:r.shape[0], :])
     
+    # print("H_schur")
+    # visualize_hessian_and_g(H_schur, g_schur)
+    # visualize_hessian_and_g(H_schur_o, g_schur_o)
 
-    print("B_C_inv_o:")
-    visualize_hessian_and_g(B_C_inv_o, g_a)
-    visualize_hessian_and_g(B_C_inv, g_a_o)
+    # print("H_TT")
+    # visualize_hessian_and_g(H_TT, g_schur)
+    # visualize_hessian_and_g(H_TT_o, g_schur_o)
 
-
-    B_C_inv_B_T_o = B_C_inv_o @ B_o.transpose()
-    B_C_inv_B_T   = np.loadtxt("B_C_inv_B_T.txt", delimiter=",")
-
-    print("B_C_inv_B_T")
-    visualize_hessian_and_g(B_C_inv_B_T_o, g_a)
-    visualize_hessian_and_g(B_C_inv_B_T, g_a_o)
+    # print("B_C_inv_B_T")
+    # visualize_hessian_and_g(B_C_inv_B_T, g_schur)
+    # visualize_hessian_and_g(B_C_inv_B_T_o, g_schur_o)
 
     
 

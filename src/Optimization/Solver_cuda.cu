@@ -32,6 +32,19 @@ __global__ void elementwiseInverseKernel(
 }
 
 
+__global__ void elementwiseSubtractionKernel(
+    const float *in1,
+    const float *in2,
+    float *out,
+    const int size
+){
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if(idx<size){
+        out[idx] = in1[idx] - in2[idx];
+    }
+}
+
+
 
 __global__ void LevenbergMarquardt(
     const torch::PackedTensorAccessor32<float,4,torch::RestrictPtrTraits> observations,
@@ -186,21 +199,29 @@ __global__ void LevenbergMarquardt(
     MatrixMultiplication(del_pn_del_tn, del_tn_del_ta, del_pn_del_ta, 3, 3, 3);
     MatrixMultiplication(del_pn_del_ta, del_ta_del_alpha, del_pn_del_alpha, 3, 3, 1);
     float del_fxy_del_alpha[2];
+
+    // First cauchy weight
+    float res_mag_square{0.0};
+    for(int xy_idx=0; xy_idx<2; xy_idx++){
+        float res = observations[target_idx][feat_idx][cam_idx][xy_idx] - p_in_target_est[xy_idx];
+        res_mag_square += res * res;
+    }
+    
+    // Compute cauchy weight
+    float cauchy_weight = sqrtf( 1.0f / ( 1.0 + (res_mag_square / lm_var->_cauchy_constant_square) ));
+
+
     for(int xy_idx=0; xy_idx<2; xy_idx++){
 
         int J_alpha_row_idx = 4 * measurement_idx + xy_idx + 2 * cam_idx;
-        // int J_alpha_col_idx = feat_idx;
-        // // Fill J_alpha
-        // J_alpha[J_alpha_row_idx * J_alpha_col_size + J_alpha_col_idx] = del_pn_del_alpha[row_idx];
-
         // Compute the residual
-        lm_var->d_r[J_alpha_row_idx] = observations[target_idx][feat_idx][cam_idx][xy_idx] - p_in_target_est[xy_idx];
+        lm_var->d_r[J_alpha_row_idx] = cauchy_weight * ( observations[target_idx][feat_idx][cam_idx][xy_idx] - p_in_target_est[xy_idx] );
         
         // Fill H_aa and g_alpha
-        atomicAdd(&lm_var->d_C[feat_idx], del_pn_del_alpha[xy_idx] * del_pn_del_alpha[xy_idx]);
-        atomicAdd(&lm_var->d_g_a[feat_idx], del_pn_del_alpha[xy_idx] * lm_var->d_r[J_alpha_row_idx]);
+        atomicAdd(&lm_var->d_C[feat_idx],   cauchy_weight * cauchy_weight * del_pn_del_alpha[xy_idx] * del_pn_del_alpha[xy_idx]);
+        atomicAdd(&lm_var->d_g_a[feat_idx], cauchy_weight * del_pn_del_alpha[xy_idx] * lm_var->d_r[J_alpha_row_idx]);
 
-        del_fxy_del_alpha[xy_idx] = del_pn_del_alpha[xy_idx];
+        del_fxy_del_alpha[xy_idx] = cauchy_weight * del_pn_del_alpha[xy_idx];
     }
 
 
@@ -239,7 +260,7 @@ __global__ void LevenbergMarquardt(
             for(int col_idx=0; col_idx<6; col_idx++){
                 int J_T_row_idx = 4 * measurement_idx + xy_idx + 2 * cam_idx;
                 int J_T_col_idx = 6 * state_idx + col_idx;
-                lm_var->d_J_T[J_T_row_idx * lm_var->_number_of_pose_params + J_T_col_idx] = del_pn_del_xi[6 * xy_idx + col_idx];
+                lm_var->d_J_T[J_T_row_idx * lm_var->_number_of_pose_params + J_T_col_idx] = cauchy_weight * del_pn_del_xi[6 * xy_idx + col_idx];
             }
         }
     }
@@ -313,164 +334,206 @@ void updateState(
     const int measurement_count,
     const int iterations
 ){
-    // Compute the poses first
-    torch::TensorOptions options = torch::TensorOptions().dtype(torch::kFloat).device(torch::kCUDA);;
-    torch::Tensor poses = torch::zeros({incremental_poses.size(0)+1, 2, 4, 4}, options); 
-    
-    // Set the first pose to identity
-    poses[0][0] = torch::eye(4, options);
-    poses[0][1] = poses[0][0].matmul(T_r_to_l); // T_r_g = T_l_g @ T_r_l
+    for(int it_idx=0; it_idx<iterations; it_idx++){
+        // Compute the poses first
+        torch::TensorOptions options = torch::TensorOptions().dtype(torch::kFloat).device(torch::kCUDA);;
+        torch::Tensor poses = torch::zeros({incremental_poses.size(0)+1, 2, 4, 4}, options); 
+        
+        // Set the first pose to identity
+        poses[0][0] = torch::eye(4, options);
+        poses[0][1] = poses[0][0].matmul(T_r_to_l); // T_r_g = T_l_g @ T_r_l
 
-    /*
-    incremental poses are T_curr_to_next
-    poses are T_curr_to_global
-    */
+        /*
+        incremental poses are T_curr_to_next
+        poses are T_curr_to_global
+        */
 
-    // Compute global poses by chaining transforms
-    for (int i = 0; i < incremental_poses.size(0); ++i) {
-        // Inverse of T_curr_to_next
-        torch::Tensor T_next_to_curr = torch::linalg_inv(incremental_poses[i]);
+        // Compute global poses by chaining transforms
+        for (int i = 0; i < incremental_poses.size(0); ++i) {
+            // Inverse of T_curr_to_next
+            torch::Tensor T_next_to_curr = torch::linalg_inv(incremental_poses[i]);
 
-        // poses[i+1] = poses[i] @ T_next_to_curr
-        poses[i+1][0] = poses[i][0].matmul(T_next_to_curr);
+            // poses[i+1] = poses[i] @ T_next_to_curr
+            poses[i+1][0] = poses[i][0].matmul(T_next_to_curr);
 
 
-        // T_r_g = T_l_g @ T_r_l
-        poses[i+1][1] = poses[i+1][0].matmul(T_r_to_l);
+            // T_r_g = T_l_g @ T_r_l
+            poses[i+1][1] = poses[i+1][0].matmul(T_r_to_l);
+        }
+        
+        auto start = std::chrono::high_resolution_clock::now();
+
+        LMvariables h_lm_var;
+        h_lm_var.allocateMemory(num_of_poses, num_of_landmark, measurement_count);
+
+        LMvariables* d_lm_var;
+        cudaMalloc((void**)&d_lm_var, sizeof(LMvariables));
+
+        // We need a pointer to our variables in cuda. 
+        cudaMemcpy(d_lm_var, &h_lm_var, sizeof(LMvariables), cudaMemcpyHostToDevice);
+
+        // Compute the Jacobians and residual
+        LevenbergMarquardt<<<NUM_BLOCKS(h_lm_var._measurement_count * 2), NUM_THREADS>>>(
+            observations.packed_accessor32<float,4,torch::RestrictPtrTraits>(),
+            poses.packed_accessor32<float,4,torch::RestrictPtrTraits>(),
+            inverse_depths.packed_accessor32<float,1,torch::RestrictPtrTraits>(),
+            intrinsics.packed_accessor32<float,2,torch::RestrictPtrTraits>(),
+            anchor_frame_id.packed_accessor32<int,1,torch::RestrictPtrTraits>(),
+            target_frame_id.packed_accessor32<int,1,torch::RestrictPtrTraits>(),
+            feat_glob_id.packed_accessor32<int,1,torch::RestrictPtrTraits>(),
+            d_lm_var
+        );
+
+
+        // Wait untill kernel is completed
+        cudaDeviceSynchronize();
+        
+        // Compute the inverse of BC_inv
+        compute_B_C_inv<<<NUM_BLOCKS(h_lm_var._number_of_pose_params * h_lm_var._number_of_landmarks), NUM_THREADS>>>(d_lm_var);
+
+        
+        
+        cudaError_t err = cudaGetLastError ();
+        if (err != cudaSuccess) {
+            fprintf(stderr, "CUDA error after kernel: %s\n", cudaGetErrorString(err));
+        }
+
+
+        // Create cuBLAS handle
+        cublasHandle_t handle;
+        cublasCreate(&handle);
+
+        cudaStream_t cublas_stream;
+        cublasGetStream(handle, &cublas_stream);  // Get cuBLAS internal stream
+
+        // J_T and J_alpha are row major. But cuBLAS requires column major indexing. 
+        // Hence, consider J_T and J_alpha as J_T.transpose and J_alpha.transpose are
+        float alpha{1.0}, beta{0.0};
+        cublasStatus_t err_cublas = cublasSgemm(
+            handle,
+            CUBLAS_OP_N, CUBLAS_OP_T,
+            static_cast<size_t>(h_lm_var._number_of_pose_params), static_cast<size_t>(h_lm_var._number_of_pose_params), static_cast<size_t>(h_lm_var._measurement_size),
+            &alpha,
+            h_lm_var.d_J_T, h_lm_var._number_of_pose_params,     
+            h_lm_var.d_J_T, h_lm_var._number_of_pose_params,
+            &beta,
+            h_lm_var.d_A, h_lm_var._number_of_pose_params
+        );
+        // Output is symmetric, hence, it does not matter if it is row major or column major.
+
+        err_cublas = cublasSgemm(
+            handle,
+            CUBLAS_OP_N, CUBLAS_OP_N,
+            static_cast<size_t>(h_lm_var._number_of_pose_params), static_cast<size_t>(1), static_cast<size_t>(h_lm_var._measurement_size),
+            &alpha,
+            h_lm_var.d_J_T, h_lm_var._number_of_pose_params,
+            h_lm_var.d_r,   h_lm_var._measurement_size,
+            &beta,
+            h_lm_var.d_g_T, h_lm_var._number_of_pose_params
+        );
+        // Output is a vector, hence, it does not matter if it is row major or column major.
+
+        cudaStreamSynchronize(cublas_stream);     // Synchronize on that stream
+        cudaDeviceSynchronize();
+
+        
+        err = cudaGetLastError ();
+        if (err != cudaSuccess) {
+            fprintf(stderr, "CUDA error after kernel: %s\n", cudaGetErrorString(err));
+        }
+
+        // Now we are ready to compute the rest
+        // DON'T FORGET THAT, I have adopted the row-major array indexing for representing a matrix as an array.
+        // However, cuBLAS assumes column-major indexing. 
+        // Hence, cuBLAS percieves my arrays as their transpose
+
+        // Compute B_C_inv_B_T
+        err_cublas = cublasSgemm(
+            handle,
+            CUBLAS_OP_T, CUBLAS_OP_N,
+            static_cast<size_t>(h_lm_var._number_of_pose_params), static_cast<size_t>(h_lm_var._number_of_pose_params), static_cast<size_t>(h_lm_var._number_of_landmarks),
+            &alpha,
+            h_lm_var.d_B_C_inv, h_lm_var._number_of_landmarks,     
+            h_lm_var.d_B, h_lm_var._number_of_landmarks,
+            &beta,
+            h_lm_var.d_B_C_inv_B_T, h_lm_var._number_of_pose_params
+        );
+        // Output is symmetric, hence, it does not matter if it is row major or column major.
+
+
+        err_cublas = cublasSgemm(
+            handle,
+            CUBLAS_OP_T, CUBLAS_OP_N,
+            static_cast<size_t>(h_lm_var._number_of_pose_params), static_cast<size_t>(1), static_cast<size_t>(h_lm_var._number_of_landmarks),
+            &alpha,
+            h_lm_var.d_B_C_inv, h_lm_var._number_of_landmarks,     
+            h_lm_var.d_g_a, h_lm_var._number_of_landmarks,
+            &beta,
+            h_lm_var.d_B_C_inv_g_a, h_lm_var._number_of_pose_params
+        );
+
+        
+        cudaStreamSynchronize(cublas_stream);     // Synchronize on that stream
+
+        int H_schur_size = h_lm_var._number_of_pose_params * h_lm_var._number_of_pose_params;
+        elementwiseSubtractionKernel<<<NUM_BLOCKS(H_schur_size), NUM_THREADS>>>(
+            h_lm_var.d_A,
+            h_lm_var.d_B_C_inv_B_T,
+            h_lm_var.d_H_schur,
+            H_schur_size
+        );
+
+        elementwiseSubtractionKernel<<<NUM_BLOCKS(h_lm_var._number_of_pose_params), NUM_THREADS>>>(
+            h_lm_var.d_g_T,
+            h_lm_var.d_B_C_inv_g_a,
+            h_lm_var.d_g_schur,
+            h_lm_var._number_of_pose_params
+        );
+
+        cudaDeviceSynchronize();
+
+        // printArr<<<NUM_BLOCKS(h_lm_var._number_of_pose_params), NUM_THREADS>>>(
+        //     h_lm_var.d_B_C_inv_g_a,
+        //     h_lm_var._number_of_pose_params
+        // );
+
+        // printArr<<<NUM_BLOCKS(h_lm_var._number_of_pose_params * h_lm_var._number_of_pose_params), NUM_THREADS>>>(
+        //     h_lm_var.d_H_schur,
+        //     h_lm_var._number_of_pose_params * h_lm_var._number_of_pose_params
+        // );
+
+        // cudaDeviceSynchronize();
+
+        err = cudaGetLastError ();
+        if (err != cudaSuccess) {
+            fprintf(stderr, "CUDA error after kernel: %s\n", cudaGetErrorString(err));
+        }
+        cublasDestroy(handle);
+
+        auto end = std::chrono::high_resolution_clock::now();
+        auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+
+        std::cout << "Elapsed time :" << duration.count() << " milliseconds" << std::endl;
+        
+
+        // // Debug
+        // h_lm_var.J_T_to_txt();
+        // h_lm_var.r_to_txt();
+
+        // h_lm_var.C_to_txt();
+        // h_lm_var.g_a_to_txt();
+
+        // h_lm_var.A_to_txt();
+        // h_lm_var.g_T_to_txt();
+
+        // h_lm_var.B_to_txt();
+        // h_lm_var.B_C_inv_to_txt();
+        // h_lm_var.B_C_inv_B_T_to_txt();
+        
+        // h_lm_var.H_schur_to_txt();
+        // h_lm_var.g_schur_to_txt();
+
+        cudaFree(d_lm_var);
+        h_lm_var.freeAll();
     }
-    
-    auto start = std::chrono::high_resolution_clock::now();
-
-    LMvariables h_lm_var;
-    h_lm_var.allocateMemory(num_of_poses, num_of_landmark, measurement_count);
-
-    LMvariables* d_lm_var;
-    cudaMalloc((void**)&d_lm_var, sizeof(LMvariables));
-
-    // We need a pointer to our variables in cuda. 
-    cudaMemcpy(d_lm_var, &h_lm_var, sizeof(LMvariables), cudaMemcpyHostToDevice);
-
-    // Compute the Jacobians and residual
-    LevenbergMarquardt<<<NUM_BLOCKS(h_lm_var._measurement_count * 2), NUM_THREADS>>>(
-        observations.packed_accessor32<float,4,torch::RestrictPtrTraits>(),
-        poses.packed_accessor32<float,4,torch::RestrictPtrTraits>(),
-        inverse_depths.packed_accessor32<float,1,torch::RestrictPtrTraits>(),
-        intrinsics.packed_accessor32<float,2,torch::RestrictPtrTraits>(),
-        anchor_frame_id.packed_accessor32<int,1,torch::RestrictPtrTraits>(),
-        target_frame_id.packed_accessor32<int,1,torch::RestrictPtrTraits>(),
-        feat_glob_id.packed_accessor32<int,1,torch::RestrictPtrTraits>(),
-        d_lm_var
-    );
-
-
-    // Wait untill kernel is completed
-    cudaDeviceSynchronize();
-    
-    // Compute the inverse of BC_inv
-    compute_B_C_inv<<<NUM_BLOCKS(h_lm_var._number_of_pose_params * h_lm_var._number_of_landmarks), NUM_THREADS>>>(d_lm_var);
-
-    
-    
-    cudaError_t err = cudaGetLastError ();
-    if (err != cudaSuccess) {
-        fprintf(stderr, "CUDA error after kernel: %s\n", cudaGetErrorString(err));
-    }
-
-
-    // Create cuBLAS handle
-    cublasHandle_t handle;
-    cublasCreate(&handle);
-
-    cudaStream_t cublas_stream;
-    cublasGetStream(handle, &cublas_stream);  // Get cuBLAS internal stream
-
-    // J_T and J_alpha are row major. But cuBLAS requires column major indexing. 
-    // Hence, consider J_T and J_alpha as J_T.transpose and J_alpha.transpose are
-    float alpha{1.0}, beta{0.0};
-    cublasStatus_t err_cublas = cublasSgemm(
-        handle,
-        CUBLAS_OP_N, CUBLAS_OP_T,
-        static_cast<size_t>(h_lm_var._number_of_pose_params), static_cast<size_t>(h_lm_var._number_of_pose_params), static_cast<size_t>(h_lm_var._measurement_size),
-        &alpha,
-        h_lm_var.d_J_T, h_lm_var._number_of_pose_params,     
-        h_lm_var.d_J_T, h_lm_var._number_of_pose_params,
-        &beta,
-        h_lm_var.d_A, h_lm_var._number_of_pose_params
-    );
-    // Output is symmetric, hence, it does not matter if it is row major or column major.
-
-    err_cublas = cublasSgemm(
-        handle,
-        CUBLAS_OP_N, CUBLAS_OP_N,
-        static_cast<size_t>(h_lm_var._number_of_pose_params), static_cast<size_t>(1), static_cast<size_t>(h_lm_var._measurement_size),
-        &alpha,
-        h_lm_var.d_J_T, h_lm_var._number_of_pose_params,
-        h_lm_var.d_r,   h_lm_var._measurement_size,
-        &beta,
-        h_lm_var.d_g_T, h_lm_var._number_of_pose_params
-    );
-    // Output is a vector, hence, it does not matter if it is row major or column major.
-
-    cudaStreamSynchronize(cublas_stream);     // Synchronize on that stream
-    cudaDeviceSynchronize();
-
-    
-    err = cudaGetLastError ();
-    if (err != cudaSuccess) {
-        fprintf(stderr, "CUDA error after kernel: %s\n", cudaGetErrorString(err));
-    }
-
-    // Now we are ready to compute the rest
-    // DON'T FORGET THAT, I have adopted the row-major array indexing for representing a matrix as an array.
-    // However, cuBLAS assumes column-major indexing. 
-    // Hence, cuBLAS percieves my arrays as their transpose
-
-    // Compute B_C_inv_B_T
-    err_cublas = cublasSgemm(
-        handle,
-        CUBLAS_OP_T, CUBLAS_OP_N,
-        static_cast<size_t>(h_lm_var._number_of_pose_params), static_cast<size_t>(h_lm_var._number_of_pose_params), static_cast<size_t>(h_lm_var._number_of_landmarks),
-        &alpha,
-        h_lm_var.d_B_C_inv, h_lm_var._number_of_landmarks,     
-        h_lm_var.d_B, h_lm_var._number_of_landmarks,
-        &beta,
-        h_lm_var.d_B_C_inv_B_T, h_lm_var._number_of_pose_params
-    );
-    // Output is symmetric, hence, it does not matter if it is row major or column major.
-
-    cudaDeviceSynchronize();
-    cudaStreamSynchronize(cublas_stream);     // Synchronize on that stream
-
-    err = cudaGetLastError ();
-    if (err != cudaSuccess) {
-        fprintf(stderr, "CUDA error after kernel: %s\n", cudaGetErrorString(err));
-    }
-    cublasDestroy(handle);
-
-    auto end = std::chrono::high_resolution_clock::now();
-    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
-
-    std::cout << "Elapsed time :" << duration.count() << " milliseconds" << std::endl;
-    
-
-    // Debug
-    h_lm_var.J_T_to_txt();
-    h_lm_var.r_to_txt();
-
-    h_lm_var.C_to_txt();
-    h_lm_var.C_inv_to_txt();
-    h_lm_var.g_a_to_txt();
-
-    h_lm_var.A_to_txt();
-    h_lm_var.g_T_to_txt();
-
-    h_lm_var.B_to_txt();
-    h_lm_var.B_C_inv_to_txt();
-    h_lm_var.B_C_inv_B_T_to_txt();
-
-
-    cudaFree(d_lm_var);
-    h_lm_var.freeAll();
-
-    // // cublasSdgmm   DIAGONAL MATRIX MULTIPLICATION
 }

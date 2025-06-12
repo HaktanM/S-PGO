@@ -14,10 +14,10 @@ class Manager():
     def __init__(self):
 
         # Number of keyframes
-        self.n = 2
+        self.n = 3
 
         # NUmber of landmarks per frame
-        self.m = 50
+        self.m = 10
 
         # Number of total landmarks 
         self.M = self.n * self.m
@@ -73,67 +73,33 @@ class Manager():
         inverse_depths = np.array(self.optimizer.estimated_inverse_depths).reshape(-1).astype(np.float32)
         self.solver.loadInverseDepths(inverse_depths)
 
+
+    def compute_estimation_errors(self):
+        errors = []
+        for idx in range(self.n):
+            actual_T = self.simulator.incremental_poses[idx]
+            estim_T  = self.solver.getIncrementalPose(idx)
+
+            error_T = np.linalg.inv(actual_T) @ estim_T
+            xi = self.optimizer.LU.Log_SE3(error_T)
+            errors.append(np.linalg.norm(xi))
+        return errors
+    
 if __name__ == "__main__":
     manager = Manager()
 
-    
 
-    # print(f"Total elapsed_time : { (t_stop - t_start) * (1e-6) } milliseconds")
+    errors = manager.compute_estimation_errors()
+    print(np.array(errors))
 
+    for idx in range(1):
+        t_start = time.monotonic_ns()
+        manager.solver.step(1)
+        t_stop  = time.monotonic_ns()
 
-    # J_T_o, J_alpha_o, r_o = manager.optimizer.getJacobiansAndResidual(manager.simulator.observations)
-    # H_TT_o = J_T_o.transpose() @ J_T_o
-    # g_T_o  = J_T_o.transpose() @ r_o
-    
-    # H_aa_o = J_alpha_o.transpose() @ J_alpha_o
-    # g_a_o  = J_alpha_o.transpose() @ r_o
-    # B_o = J_T_o.transpose() @ J_alpha_o
-    # B_C_inv_o = B_o @ np.linalg.inv(H_aa_o + np.eye(H_aa_o.shape[0])*0.0001)
-    # B_C_inv_B_T_o = B_C_inv_o @ B_o.transpose()
+        # print(f"Total elapsed_time : { (t_stop - t_start) * (1e-6) } milliseconds")
 
-    # H_schur_o = H_TT_o - B_C_inv_B_T_o + np.eye(H_TT_o.shape[0]) * 0.1
-    # g_schur_o = g_T_o  - B_C_inv_o @ g_a_o
-
-    # delta_pose_o  = np.linalg.solve(H_schur_o, g_schur_o)
-
-    # B_T_delta_T_o = B_o.transpose() @ delta_pose_o
-    # delta_a_o     = np.linalg.inv(H_aa_o + np.eye(H_aa_o.shape[0])*0.0001) @ (g_a_o - B_T_delta_T_o)
-
-    # innovation = delta_pose_o[:6,:]
-    # update = manager.optimizer.LU.Exp_SE3(innovation)
-    
-    # incremental_pose = manager.solver.getIncrementalPose(0)
-    # updated_state = incremental_pose @ update
-
-    # print(H_TT_o)
-
-    # print("innovation")
-    # print(innovation)
-
-    # print("update")
-    # print(update)
-
-    # print("updated_state")
-    # print(updated_state)
-
-    # print("incremental_pose")
-    # print(incremental_pose)
-
-
-    t_start = time.monotonic_ns()
-    manager.solver.step(1)
-    t_stop  = time.monotonic_ns()
-
-    # print(delta_pose_o)
-
-    
-
-
-    # incremental_pose = manager.solver.getIncrementalPose(0)
-
-    # print("incremental_pose")
-    # print(incremental_pose)
-
-    
+        errors = manager.compute_estimation_errors()
+        print(np.array(errors))
 
     

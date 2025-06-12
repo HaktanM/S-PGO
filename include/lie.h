@@ -11,6 +11,7 @@
 
 // General Utils
 __device__ void MatrixMultiplication(const float *A, const float *B, float *C, int HEIGHT, int HIDDEN, int WIDTH);
+__device__ void InvertPose4x4(const float* input, float* output);
 __device__ void skew(const float *s, float *S);
 
 // SO3 tools

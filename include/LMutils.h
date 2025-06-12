@@ -1,11 +1,21 @@
-#include <cuda_runtime.h>
 #include <iostream>
 #include <fstream> 
 #include "lie.h"
 
+#include <cuda_runtime.h>
+#include <cusolverDn.h>    // cuSOLVER API
+
+
+
+
 struct LMvariables{
 public:
-    float* d_J_T            = NULL;
+
+    float *_incremental_poses  = NULL;
+    float *_global_left_poses  = NULL;
+    float *_global_right_poses = NULL;
+
+    float *d_J_T            = NULL;
     float *d_r              = NULL;
 
     float *d_A              = NULL;
@@ -23,19 +33,34 @@ public:
     float *d_H_schur        = NULL;
     float *d_g_schur        = NULL;
 
+    float *d_B_T_delta_T    = NULL;
+    float *d_delta_a        = NULL;
+
+    float *d_T_r_to_l       = NULL;
+
     int _number_of_pose_params{0};
     int _number_of_landmarks{0};
     int _measurement_size{0};
 
     int _measurement_count{0};
-    int _num_of_poses{0};
+    int _number_of_poses{0};
 
     float _cauchy_constant_square{9.0};
 
     float _eps{0.0001};   // During the division, _eps is used for numeric stability
 
+    float _lambda_schur{10.0};   // During the division, _eps is used for numeric stability
+
+    float _min_inv_depth{1.0/30.0};
+    float _max_inv_depth{1.0/0.2};
+
     void allocateMemory(int num_of_pose_params, int num_of_landmarks, int measurement_size);
 
+    void solve_Cholesky();
+    void solve_SVD();
+    void solve_Eigen();
+
+    void resetMiddleVariables();
     void freeAll();
 
     
@@ -54,6 +79,9 @@ public:
 
     void H_schur_to_txt();
     void g_schur_to_txt();
+
+    void d_B_T_delta_T_to_txt();
+    void d_delta_a_to_txt();
 };
 
 

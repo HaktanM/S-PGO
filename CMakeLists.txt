@@ -99,6 +99,7 @@ target_sources(${CYTHON_MODULE_NAME} PRIVATE
     src/LieUtils/SE3.cu
     src/Optimization/LMutils.cu  
     src/Optimization/Solver_cuda.cu 
+    src/Optimization/linear_solvers.cu
     src/Optimization/Solver.cpp
 )
 
@@ -111,4 +112,5 @@ ${Python3_LIBRARIES}
     ${TORCH_LIBRARIES} 
     Python3::Python
     CUDA::cublas
+    CUDA::cusolver
 )

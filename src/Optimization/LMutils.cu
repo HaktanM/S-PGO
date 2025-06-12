@@ -1,6 +1,7 @@
 #include "LMutils.h"
 
 
+
 void LMvariables::allocateMemory(int num_of_poses, int num_of_landmarks, int measurement_count){
 
     _number_of_pose_params = num_of_poses * 6;
@@ -8,9 +9,17 @@ void LMvariables::allocateMemory(int num_of_poses, int num_of_landmarks, int mea
     _measurement_size      = measurement_count * 4;
 
     _measurement_count     = measurement_count;
-    _num_of_poses          = num_of_poses;
+    _number_of_poses       = num_of_poses;
 
 
+    cudaMalloc((void**)&_incremental_poses,  _number_of_poses * 16 * sizeof(float));
+    cudaMemset(_incremental_poses, 0,        _number_of_poses * 16 * sizeof(float)); 
+    
+    cudaMalloc((void**)&_global_left_poses,  (_number_of_poses + 1) * 16 * sizeof(float));
+    cudaMemset(_global_left_poses, 0,        (_number_of_poses + 1) * 16 * sizeof(float)); 
+
+    cudaMalloc((void**)&_global_right_poses,  (_number_of_poses + 1) * 16 * sizeof(float));
+    cudaMemset(_global_right_poses, 0,        (_number_of_poses + 1) * 16 * sizeof(float)); 
 
     cudaMalloc((void**)&d_J_T, _measurement_size * _number_of_pose_params * sizeof(float));
     cudaMemset(d_J_T, 0,       _measurement_size * _number_of_pose_params * sizeof(float)); 
@@ -46,10 +55,43 @@ void LMvariables::allocateMemory(int num_of_poses, int num_of_landmarks, int mea
     cudaMemset(d_H_schur, 0,       _number_of_pose_params * _number_of_pose_params* sizeof(float)); 
 
     cudaMalloc((void**)&d_g_schur, _number_of_pose_params * sizeof(float));
-    cudaMemset(d_g_schur, 0,       _number_of_pose_params * sizeof(float)); 
+    cudaMemset(d_g_schur, 0,       _number_of_pose_params * sizeof(float));  
+
+    cudaMalloc((void**)&d_B_T_delta_T, _number_of_landmarks * sizeof(float));
+    cudaMemset(d_B_T_delta_T, 0,       _number_of_landmarks * sizeof(float));
+
+    cudaMalloc((void**)&d_delta_a, _number_of_landmarks * sizeof(float));
+    cudaMemset(d_delta_a, 0,       _number_of_landmarks * sizeof(float));
+
+    cudaMalloc((void**)&d_T_r_to_l, 16 * sizeof(float));
+    cudaMemset(d_T_r_to_l, 0,       16 * sizeof(float));
+};
+
+void LMvariables::resetMiddleVariables(){
+
+    // cudaMemset(_global_left_poses, 0,        (_number_of_poses + 1) * 16 * sizeof(float)); 
+    // cudaMemset(_global_right_poses, 0,        (_number_of_poses + 1) * 16 * sizeof(float)); 
+    cudaMemset(d_J_T, 0,       _measurement_size * _number_of_pose_params * sizeof(float)); 
+    cudaMemset(d_r, 0,         _measurement_size * sizeof(float)); 
+    cudaMemset(d_A, 0,         _number_of_pose_params * _number_of_pose_params * sizeof(float)); 
+    cudaMemset(d_g_T, 0,       _number_of_pose_params * sizeof(float)); 
+    cudaMemset(d_C, 0,           _number_of_landmarks * sizeof(float)); 
+    cudaMemset(d_g_a, 0,         _number_of_landmarks * sizeof(float)); 
+    cudaMemset(d_B, 0,       _number_of_pose_params * _number_of_landmarks * sizeof(float)); 
+    cudaMemset(d_B_C_inv, 0,       _number_of_pose_params * _number_of_landmarks * sizeof(float)); 
+    cudaMemset(d_B_C_inv_B_T, 0,       _number_of_pose_params * _number_of_pose_params * sizeof(float)); 
+    cudaMemset(d_B_C_inv_g_a, 0,       _number_of_pose_params * sizeof(float)); 
+    cudaMemset(d_H_schur, 0,       _number_of_pose_params * _number_of_pose_params* sizeof(float)); 
+    cudaMemset(d_g_schur, 0,       _number_of_pose_params * sizeof(float));  
+    cudaMemset(d_B_T_delta_T, 0,       _number_of_landmarks * sizeof(float));
+    cudaMemset(d_delta_a, 0,       _number_of_landmarks * sizeof(float));
 };
 
 void LMvariables::freeAll(){
+    cudaFree(_incremental_poses);
+    cudaFree(_global_left_poses);
+    cudaFree(_global_right_poses);
+
     cudaFree(d_J_T);
     cudaFree(d_r);
     
@@ -68,11 +110,16 @@ void LMvariables::freeAll(){
     cudaFree(d_H_schur);
     cudaFree(d_g_schur);
 
+    cudaFree(d_B_T_delta_T);
+    cudaFree(d_delta_a);
+
+    cudaFree(d_T_r_to_l);
+
     _number_of_pose_params = 0;
     _number_of_landmarks   = 0;
     _measurement_size      = 0;
     _measurement_count     = 0;
-    _num_of_poses          = 0;
+    _number_of_poses          = 0;
 };
 
 
@@ -364,6 +411,46 @@ void LMvariables::g_schur_to_txt(){
     free(h_g_schur);
 }
 
+
+void LMvariables::d_B_T_delta_T_to_txt(){
+    // First load the matrix C into CPU
+    float *h_B_T_delta_T;
+    h_B_T_delta_T =(float *) malloc( _number_of_landmarks * sizeof(float));
+    cudaMemcpy(h_B_T_delta_T, d_B_T_delta_T,   _number_of_landmarks * sizeof(float), cudaMemcpyDeviceToHost);
+
+    // Create and open a text file
+    std::ofstream txt_file("B_T_delta_T.txt");
+
+    // Write the C matrix into the txt
+    for(int col_idx=0; col_idx<_number_of_landmarks; col_idx++){
+        txt_file << h_B_T_delta_T[col_idx];
+        txt_file << std::endl;
+    }
+
+    // Close the file
+    txt_file.close();
+    free(h_B_T_delta_T);
+}
+
+void LMvariables::d_delta_a_to_txt(){
+    // First load the matrix C into CPU
+    float *h_delta_a;
+    h_delta_a =(float *) malloc( _number_of_landmarks * sizeof(float));
+    cudaMemcpy(h_delta_a, d_delta_a,   _number_of_landmarks * sizeof(float), cudaMemcpyDeviceToHost);
+
+    // Create and open a text file
+    std::ofstream txt_file("delta_a.txt");
+
+    // Write the C matrix into the txt
+    for(int col_idx=0; col_idx<_number_of_landmarks; col_idx++){
+        txt_file << h_delta_a[col_idx];
+        txt_file << std::endl;
+    }
+
+    // Close the file
+    txt_file.close();
+    free(h_delta_a);
+}
 
 __device__ void getRotFromT(const float *T, float *R){
     R[0] = T[0];

@@ -2,3 +2,4 @@ build
 env
 .vscode/
 *.txt
+PythonUtils/__pycache__

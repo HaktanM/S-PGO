@@ -102,49 +102,8 @@ __global__ void LevenbergMarquardt(
         Kr[8] = 1.0f; 
     }
 
-    // Get the size of the alpha vector
-    int number_of_poses = lm_var->_number_of_poses;
-
     // Get the global thread index
     int thread_global_idx = blockIdx.x * blockDim.x + threadIdx.x;
-
-    // Compute the global poses.
-    // This process has to be sequential, nothing to do
-    if(thread_global_idx == 3){
-        // Compute global poses
-        for(int pose_idx=0; pose_idx<number_of_poses; pose_idx++){
-            float T_next_to_curr[16];
-            InvertPose4x4(
-                &lm_var->_incremental_poses[pose_idx * 16],
-                T_next_to_curr
-            );
-            MatrixMultiplication(
-                &lm_var->_global_left_poses[pose_idx * 16],       
-                T_next_to_curr,                            
-                &lm_var->_global_left_poses[(pose_idx + 1) * 16],
-                4, 4, 4
-            );
-
-            // 🔍 Check if the new global pose is all zero
-            bool is_zero = true;
-            for (int i = 0; i < 16; ++i) {
-                if (lm_var->_global_left_poses[(pose_idx + 1) * 16 + i] != 0.0f) {
-                    is_zero = false;
-                    break;
-                }
-            }
-            if (is_zero) {
-                printf("⚠️ Global left pose at index %d is all zero!\n", pose_idx + 1);
-            }
-
-            MatrixMultiplication(
-                &lm_var->_global_left_poses[(pose_idx + 1) * 16],
-                lm_var->d_T_r_to_l,                          
-                &lm_var->_global_right_poses[(pose_idx + 1) * 16], 
-                4, 4, 4
-            );   
-        }
-    } 
 
     // Make sure that the parameters are loaded to the shared memory
     __syncthreads();
@@ -156,14 +115,11 @@ __global__ void LevenbergMarquardt(
     int measurement_idx   = thread_global_idx / 2;
     int cam_idx           = thread_global_idx % 2;  // 0: Left Cam, 1: Right Cam
 
-    
-
     int anchor_idx = anchor_frame_ids[measurement_idx];
     int target_idx = target_frame_ids[measurement_idx];
     int feat_idx   = feat_glob_ids[measurement_idx];
 
-    // Make sure that the parameters are loaded to the shared memory
-    __syncthreads();
+
     // Get global poses
     float T_anchor_to_glob[16];
     float T_target_to_glob[16];
@@ -172,40 +128,16 @@ __global__ void LevenbergMarquardt(
     for(int row_idx=0; row_idx<4; row_idx++){
         for(int col_idx=0; col_idx<4; col_idx++){
             T_anchor_to_glob[row_idx*4 + col_idx] = lm_var->_global_left_poses[anchor_idx*16 + row_idx*4 + col_idx];
-            T_target_to_glob[row_idx*4 + col_idx] = lm_var->_global_left_poses[target_idx*16 + row_idx*4 + col_idx];
-            // if(cam_idx == 0)
-            // { // Load left camera pose
-            //     T_target_to_glob[row_idx*4 + col_idx] = lm_var->_global_left_poses[target_idx*16 + row_idx*4 + col_idx];
-            // }else
-            // { // Load right camera pose
-            //     T_target_to_glob[row_idx*4 + col_idx] = lm_var->_global_right_poses[target_idx*16 + row_idx*4 + col_idx];
-            // }
+            if(cam_idx == 0)
+            { // Load left camera pose
+                T_target_to_glob[row_idx*4 + col_idx] = lm_var->_global_left_poses[target_idx*16 + row_idx*4 + col_idx];
+            }else
+            { // Load right camera pose
+                T_target_to_glob[row_idx*4 + col_idx] = lm_var->_global_right_poses[target_idx*16 + row_idx*4 + col_idx];
+            }
         }
     }
-    if(thread_global_idx == 475){
-        printf("475:\n");
-        printf("T_target_to_glob : %f, %f, %f\n", T_target_to_glob[0], T_target_to_glob[1], T_target_to_glob[2]);
-        printf("lm_var->_global_left_poses[target_idx*16 + row_idx*4 + col_idx] : %f, %f, %f\n", lm_var->_global_left_poses[target_idx*16 + 0], lm_var->_global_left_poses[target_idx*16 + 1], lm_var->_global_left_poses[target_idx*16 + 2]);
-    }
-    if(thread_global_idx == 476){
-        printf("476:\n");
-        printf("T_target_to_glob : %f, %f, %f\n", T_target_to_glob[0], T_target_to_glob[1], T_target_to_glob[2]);
-    }
-
-    if(thread_global_idx == 320){
-        printf("320:\n");
-        printf("T_target_to_glob : %f, %f, %f\n", T_target_to_glob[0], T_target_to_glob[1], T_target_to_glob[2]);
-    }
-
-    if(thread_global_idx == 280){
-        printf("280:\n");
-        printf("T_target_to_glob : %f, %f, %f\n", T_target_to_glob[0], T_target_to_glob[1], T_target_to_glob[2]);
-    }
-
-    if(thread_global_idx == 380){
-        printf("380:\n");
-        printf("T_target_to_glob : %f, %f, %f\n", T_target_to_glob[0], T_target_to_glob[1], T_target_to_glob[2]);
-    }
+    
 
     // Inverse of these are also required
     float T_glob_to_target[16];
@@ -242,15 +174,6 @@ __global__ void LevenbergMarquardt(
     }else{
         MatrixMultiplication(Kr, b_feat_in_target, p_in_target_est, 3, 3, 1);
     }
-
-    // Debug prints for suspicious values
-    bool invalid = isnan(p_in_target_est[0]) || isnan(p_in_target_est[1]) || isnan(p_in_target_est[2]) ||
-                isinf(p_in_target_est[0]) || isinf(p_in_target_est[1]) || isinf(p_in_target_est[2]);
-
-    if (invalid ) {
-        printf("thread_global_idx : %d, target_idx : %d, feat_idx:%d, cam_idx:%d, T_target_to_glob = [%f, %f, %f]\n", thread_global_idx, target_idx, feat_idx, cam_idx, T_target_to_glob[0], T_target_to_glob[1], T_target_to_glob[2]);
-    }
-
 
     // del_pn_del_bn
     float del_pn_del_bn[9];
@@ -469,28 +392,7 @@ __global__ void loadIncrementalPoses(
 
         lm_var->_incremental_poses[thread_global_idx] = incremental_poses[incremental_pose_index][row_idx][col_idx];
     } 
-
     else if(thread_global_idx == max_item){
-        // Initalize the poses at first time instant for left
-        for(int row_idx=0; row_idx<4; row_idx++){
-            for(int col_idx=0; col_idx<4; col_idx++){
-                if(row_idx==col_idx){
-                    lm_var->_global_left_poses[row_idx*4 + col_idx] = 1.0;
-                }else{
-                    lm_var->_global_left_poses[row_idx*4 + col_idx] = 0.0;
-                }
-            }
-        }
-    }
-    else if(thread_global_idx == max_item + 1){
-        // Initalize the poses at first time instant for right
-        for(int row_idx=0; row_idx<4; row_idx++){
-            for(int col_idx=0; col_idx<4; col_idx++){
-                lm_var->_global_right_poses[row_idx*4 + col_idx] = T_r_to_l[row_idx][col_idx];
-            }
-        }
-    } 
-    else if(thread_global_idx == max_item + 2){
         // Initalize the poses at first time instant for right
         for(int row_idx=0; row_idx<4; row_idx++){
             for(int col_idx=0; col_idx<4; col_idx++){
@@ -528,6 +430,64 @@ __global__ void loadIncrementalPosesBack(
 }
 
 
+
+__global__ void computeGlobalPoses(
+    LMvariables *lm_var
+)
+{   
+    // Get the size of the alpha vector
+    int number_of_poses = lm_var->_number_of_poses;
+
+    // Get the global thread index
+    int thread_global_idx = blockIdx.x * blockDim.x + threadIdx.x;
+
+    // Compute the global poses.
+    // This process has to be sequential, nothing to do
+    if(thread_global_idx == 0){
+        // Initalize the poses at first time instant for left
+        for(int row_idx=0; row_idx<4; row_idx++){
+            for(int col_idx=0; col_idx<4; col_idx++){
+                if(row_idx==col_idx){
+                    lm_var->_global_left_poses[row_idx*4 + col_idx] = 1.0;
+                }else{
+                    lm_var->_global_left_poses[row_idx*4 + col_idx] = 0.0;
+                }
+            }
+        }
+
+        // Initalize the poses at first time instant for right
+        for(int row_idx=0; row_idx<4; row_idx++){
+            for(int col_idx=0; col_idx<4; col_idx++){
+                lm_var->_global_right_poses[row_idx*4 + col_idx] = lm_var->d_T_r_to_l[row_idx*4 + col_idx];
+            }
+        }
+
+        // Compute global poses
+        for(int pose_idx=0; pose_idx<number_of_poses; pose_idx++){
+            float T_next_to_curr[16];
+            InvertPose4x4(
+                &lm_var->_incremental_poses[pose_idx * 16],
+                T_next_to_curr
+            );
+            MatrixMultiplication(
+                &lm_var->_global_left_poses[pose_idx * 16],       
+                T_next_to_curr,                            
+                &lm_var->_global_left_poses[(pose_idx + 1) * 16],
+                4, 4, 4
+            );
+
+            MatrixMultiplication(
+                &lm_var->_global_left_poses[(pose_idx + 1) * 16],
+                lm_var->d_T_r_to_l,                          
+                &lm_var->_global_right_poses[(pose_idx + 1) * 16], 
+                4, 4, 4
+            );   
+        }
+    } 
+}
+
+
+
 void __global__ updateEstimation(
     LMvariables *lm_var,
     torch::PackedTensorAccessor32<float,1,torch::RestrictPtrTraits> inverse_depths
@@ -547,7 +507,9 @@ void __global__ updateEstimation(
         float updated_incremental_pose[16];
         float state_innovation[16];
 
-        
+        // for(int idx=0; idx<6; ++idx){
+        //     lm_var->d_g_schur[pose_idx * 6 + idx] = 0.1 * lm_var->d_g_schur[pose_idx * 6 + idx];
+        // }
 
         ExpSE3(
             &lm_var->d_g_schur[pose_idx * 6],
@@ -612,7 +574,7 @@ void updateState(
     // We need a pointer to our variables in cuda. 
     cudaMemcpy(d_lm_var, &h_lm_var, sizeof(LMvariables), cudaMemcpyHostToDevice);
 
-    loadIncrementalPoses<<<NUM_BLOCKS(h_lm_var._number_of_poses*16+3), NUM_THREADS>>>(
+    loadIncrementalPoses<<<NUM_BLOCKS(h_lm_var._number_of_poses*16+1), NUM_THREADS>>>(
         incremental_poses.packed_accessor32<float,3,torch::RestrictPtrTraits>(),
         T_r_to_l.packed_accessor32<float,2,torch::RestrictPtrTraits>(),
         d_lm_var
@@ -622,6 +584,9 @@ void updateState(
     cudaDeviceSynchronize();
 
     for(int it_idx=0; it_idx<iterations; it_idx++){
+
+        // Compute Global Poses First
+        computeGlobalPoses<<<NUM_BLOCKS(1), NUM_THREADS>>>(d_lm_var);
     
         // Compute the A, B, C and g_a, g_T
         LevenbergMarquardt<<<NUM_BLOCKS(h_lm_var._measurement_count * 2), NUM_THREADS>>>(
@@ -662,7 +627,7 @@ void updateState(
         cublasStatus_t err_cublas = cublasSgemm(
             handle,
             CUBLAS_OP_N, CUBLAS_OP_T,
-            static_cast<size_t>(h_lm_var._number_of_pose_params), static_cast<size_t>(h_lm_var._number_of_pose_params), static_cast<size_t>(h_lm_var._number_of_pose_params),
+            static_cast<size_t>(h_lm_var._number_of_pose_params), static_cast<size_t>(h_lm_var._number_of_pose_params), static_cast<size_t>(h_lm_var._measurement_size),
             &alpha,
             h_lm_var.d_J_T, h_lm_var._number_of_pose_params,     
             h_lm_var.d_J_T, h_lm_var._number_of_pose_params,
@@ -693,124 +658,125 @@ void updateState(
 
         cudaStreamSynchronize(cublas_stream);
 
-        h_lm_var.A_to_txt();
-        h_lm_var.r_to_txt();
-        h_lm_var.g_T_to_txt();
+        // h_lm_var.J_T_to_txt();
+        // h_lm_var.A_to_txt();
+        // h_lm_var.r_to_txt();
+        // h_lm_var.g_T_to_txt();
 
-        // cudaStreamSynchronize(cublas_stream);     // Synchronize on that stream
-        // cudaDeviceSynchronize();
-
-        
-        // err = cudaGetLastError ();
-        // if (err != cudaSuccess) {
-        //     fprintf(stderr, "CUDA error after kernel: %s\n", cudaGetErrorString(err));
-        // }
-
-        // // Now we are ready to compute the rest
-        // // DON'T FORGET THAT, I have adopted the row-major array indexing for representing a matrix as an array.
-        // // However, cuBLAS assumes column-major indexing. 
-        // // Hence, cuBLAS percieves my arrays as their transpose
-
-        // // Compute B_C_inv_B_T
-        // err_cublas = cublasSgemm(
-        //     handle,
-        //     CUBLAS_OP_T, CUBLAS_OP_N,
-        //     static_cast<size_t>(h_lm_var._number_of_pose_params), static_cast<size_t>(h_lm_var._number_of_pose_params), static_cast<size_t>(h_lm_var._number_of_landmarks),
-        //     &alpha,
-        //     h_lm_var.d_B_C_inv, h_lm_var._number_of_landmarks,     
-        //     h_lm_var.d_B, h_lm_var._number_of_landmarks,
-        //     &beta,
-        //     h_lm_var.d_B_C_inv_B_T, h_lm_var._number_of_pose_params
-        // );
-        // // Output is symmetric, hence, it does not matter if it is row major or column major.
-
-
-        // err_cublas = cublasSgemm(
-        //     handle,
-        //     CUBLAS_OP_T, CUBLAS_OP_N,
-        //     static_cast<size_t>(h_lm_var._number_of_pose_params), static_cast<size_t>(1), static_cast<size_t>(h_lm_var._number_of_landmarks),
-        //     &alpha,
-        //     h_lm_var.d_B_C_inv, h_lm_var._number_of_landmarks,     
-        //     h_lm_var.d_g_a, h_lm_var._number_of_landmarks,
-        //     &beta,
-        //     h_lm_var.d_B_C_inv_g_a, h_lm_var._number_of_pose_params
-        // );
+        cudaStreamSynchronize(cublas_stream);     // Synchronize on that stream
+        cudaDeviceSynchronize();
 
         
-        // cudaStreamSynchronize(cublas_stream);
+        err = cudaGetLastError ();
+        if (err != cudaSuccess) {
+            fprintf(stderr, "CUDA error after kernel: %s\n", cudaGetErrorString(err));
+        }
 
-        // int H_schur_size = h_lm_var._number_of_pose_params * h_lm_var._number_of_pose_params;
-        // elementwiseSubtractionKernel<<<NUM_BLOCKS(H_schur_size), NUM_THREADS>>>(
-        //     h_lm_var.d_A,
-        //     h_lm_var.d_B_C_inv_B_T,
-        //     h_lm_var.d_H_schur,
-        //     H_schur_size
-        // );
+        // Now we are ready to compute the rest
+        // DON'T FORGET THAT, I have adopted the row-major array indexing for representing a matrix as an array.
+        // However, cuBLAS assumes column-major indexing. 
+        // Hence, cuBLAS percieves my arrays as their transpose
 
-        // elementwiseSubtractionKernel<<<NUM_BLOCKS(h_lm_var._number_of_pose_params), NUM_THREADS>>>(
-        //     h_lm_var.d_g_T,
-        //     h_lm_var.d_B_C_inv_g_a,
-        //     h_lm_var.d_g_schur,
-        //     h_lm_var._number_of_pose_params
-        // );
+        // Compute B_C_inv_B_T
+        err_cublas = cublasSgemm(
+            handle,
+            CUBLAS_OP_T, CUBLAS_OP_N,
+            static_cast<size_t>(h_lm_var._number_of_pose_params), static_cast<size_t>(h_lm_var._number_of_pose_params), static_cast<size_t>(h_lm_var._number_of_landmarks),
+            &alpha,
+            h_lm_var.d_B_C_inv, h_lm_var._number_of_landmarks,     
+            h_lm_var.d_B, h_lm_var._number_of_landmarks,
+            &beta,
+            h_lm_var.d_B_C_inv_B_T, h_lm_var._number_of_pose_params
+        );
+        // Output is symmetric, hence, it does not matter if it is row major or column major.
 
-        // cudaStreamSynchronize(cublas_stream);
-        // cudaDeviceSynchronize();
+
+        err_cublas = cublasSgemm(
+            handle,
+            CUBLAS_OP_T, CUBLAS_OP_N,
+            static_cast<size_t>(h_lm_var._number_of_pose_params), static_cast<size_t>(1), static_cast<size_t>(h_lm_var._number_of_landmarks),
+            &alpha,
+            h_lm_var.d_B_C_inv, h_lm_var._number_of_landmarks,     
+            h_lm_var.d_g_a, h_lm_var._number_of_landmarks,
+            &beta,
+            h_lm_var.d_B_C_inv_g_a, h_lm_var._number_of_pose_params
+        );
+
         
-        // h_lm_var.H_schur_to_txt();
-        // // printArr<<<NUM_BLOCKS(h_lm_var._number_of_pose_params), NUM_THREADS>>>(
-        // //     h_lm_var.d_g_schur,
-        // //     h_lm_var._number_of_pose_params
-        // // );
-        // h_lm_var.B_to_txt();
+        cudaStreamSynchronize(cublas_stream);
+
+        int H_schur_size = h_lm_var._number_of_pose_params * h_lm_var._number_of_pose_params;
+        elementwiseSubtractionKernel<<<NUM_BLOCKS(H_schur_size), NUM_THREADS>>>(
+            h_lm_var.d_A,
+            h_lm_var.d_B_C_inv_B_T,
+            h_lm_var.d_H_schur,
+            H_schur_size
+        );
+
+        elementwiseSubtractionKernel<<<NUM_BLOCKS(h_lm_var._number_of_pose_params), NUM_THREADS>>>(
+            h_lm_var.d_g_T,
+            h_lm_var.d_B_C_inv_g_a,
+            h_lm_var.d_g_schur,
+            h_lm_var._number_of_pose_params
+        );
+
+        cudaStreamSynchronize(cublas_stream);
+        cudaDeviceSynchronize();
+        
+        
+        printArr<<<NUM_BLOCKS(h_lm_var._number_of_pose_params), NUM_THREADS>>>(
+            h_lm_var.d_g_schur,
+            h_lm_var._number_of_pose_params
+        );
+        h_lm_var.H_schur_to_txt();
 
         // cudaStreamSynchronize(cublas_stream);
         // add_damping_to_schur<<<NUM_BLOCKS(h_lm_var._number_of_pose_params), NUM_THREADS>>>(d_lm_var);
         // cudaStreamSynchronize(cublas_stream);
 
-        // // Compute delta T
-        // h_lm_var.solve_Eigen();
+        // Compute delta T
+        h_lm_var.solve_Cholesky();
 
-        // h_lm_var.g_schur_to_txt();
+        h_lm_var.g_schur_to_txt();
         
 
-        // // Compute delta alpha
-        // err_cublas = cublasSgemm(
-        //     handle,
-        //     CUBLAS_OP_N, CUBLAS_OP_N,
-        //     static_cast<size_t>(h_lm_var._number_of_landmarks), static_cast<size_t>(1), static_cast<size_t>(h_lm_var._number_of_pose_params),
-        //     &alpha,
-        //     h_lm_var.d_B,       h_lm_var._number_of_landmarks,     
-        //     h_lm_var.d_g_schur, h_lm_var._number_of_pose_params,
-        //     &beta,
-        //     h_lm_var.d_B_T_delta_T, h_lm_var._number_of_landmarks
-        // );
+        // Compute delta alpha
+        err_cublas = cublasSgemm(
+            handle,
+            CUBLAS_OP_N, CUBLAS_OP_N,
+            static_cast<size_t>(h_lm_var._number_of_landmarks), static_cast<size_t>(1), static_cast<size_t>(h_lm_var._number_of_pose_params),
+            &alpha,
+            h_lm_var.d_B,       h_lm_var._number_of_landmarks,     
+            h_lm_var.d_g_schur, h_lm_var._number_of_pose_params,
+            &beta,
+            h_lm_var.d_B_T_delta_T, h_lm_var._number_of_landmarks
+        );
 
-        // cudaStreamSynchronize(cublas_stream);
-        // cudaDeviceSynchronize();
+        cudaStreamSynchronize(cublas_stream);
+        cudaDeviceSynchronize();
 
-        // compute_delta_a<<<NUM_BLOCKS(h_lm_var._number_of_landmarks), NUM_THREADS>>>(d_lm_var);
+        compute_delta_a<<<NUM_BLOCKS(h_lm_var._number_of_landmarks), NUM_THREADS>>>(d_lm_var);
 
-        // cudaDeviceSynchronize();
+        cudaDeviceSynchronize();
 
 
         
-        // // Finally, update the estimation
-        // updateEstimation<<<NUM_BLOCKS(h_lm_var._number_of_poses + h_lm_var._number_of_landmarks), NUM_THREADS>>>(
-        //     d_lm_var,
-        //     inverse_depths.packed_accessor32<float,1,torch::RestrictPtrTraits>()
-        // );
+        // Finally, update the estimation
+        updateEstimation<<<NUM_BLOCKS(h_lm_var._number_of_poses + h_lm_var._number_of_landmarks), NUM_THREADS>>>(
+            d_lm_var,
+            inverse_depths.packed_accessor32<float,1,torch::RestrictPtrTraits>()
+        );
 
-        // cudaDeviceSynchronize();
+        cudaDeviceSynchronize();
 
-        // err = cudaGetLastError ();
-        // if (err != cudaSuccess) {
-        //     fprintf(stderr, "CUDA error after kernel: %s\n", cudaGetErrorString(err));
-        // }
-        // cublasDestroy(handle);
+        err = cudaGetLastError ();
+        if (err != cudaSuccess) {
+            fprintf(stderr, "CUDA error after kernel: %s\n", cudaGetErrorString(err));
+        }
+        cublasDestroy(handle);
 
-        // h_lm_var.resetMiddleVariables();
-        // cudaDeviceSynchronize();
+        h_lm_var.resetMiddleVariables();
+        cudaDeviceSynchronize();
         
     }
 

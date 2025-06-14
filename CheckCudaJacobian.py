@@ -14,10 +14,10 @@ class Manager():
     def __init__(self):
 
         # Number of keyframes
-        self.n = 2
+        self.n = 1
 
         # NUmber of landmarks per frame
-        self.m = 50
+        self.m = 2
 
         # Number of total landmarks 
         self.M = self.n * self.m
@@ -81,31 +81,44 @@ if __name__ == "__main__":
     # print(f"Total elapsed_time : { (t_stop - t_start) * (1e-6) } milliseconds")
 
 
-    # J_T_o, J_alpha_o, r_o = manager.optimizer.getJacobiansAndResidual(manager.simulator.observations)
-    # H_TT_o = J_T_o.transpose() @ J_T_o
-    # g_T_o  = J_T_o.transpose() @ r_o
+    J_T_o, J_alpha_o, r_o = manager.optimizer.getJacobiansAndResidual(manager.simulator.observations)
+    H_TT_o = J_T_o.transpose() @ J_T_o
+    g_T_o  = J_T_o.transpose() @ r_o
     
-    # H_aa_o = J_alpha_o.transpose() @ J_alpha_o
-    # g_a_o  = J_alpha_o.transpose() @ r_o
-    # B_o = J_T_o.transpose() @ J_alpha_o
-    # B_C_inv_o = B_o @ np.linalg.inv(H_aa_o + np.eye(H_aa_o.shape[0])*0.0001)
-    # B_C_inv_B_T_o = B_C_inv_o @ B_o.transpose()
+    H_aa_o = J_alpha_o.transpose() @ J_alpha_o
+    g_a_o  = J_alpha_o.transpose() @ r_o
+    B_o = J_T_o.transpose() @ J_alpha_o
+    B_C_inv_o = B_o @ np.linalg.inv(H_aa_o + np.eye(H_aa_o.shape[0])*0.0001)
+    B_C_inv_B_T_o = B_C_inv_o @ B_o.transpose()
 
-    # H_schur_o = H_TT_o - B_C_inv_B_T_o + np.eye(H_TT_o.shape[0]) * 0.1
-    # g_schur_o = g_T_o  - B_C_inv_o @ g_a_o
+    H_schur_o = H_TT_o - B_C_inv_B_T_o + np.eye(H_TT_o.shape[0]) * 0.1
+    g_schur_o = g_T_o  - B_C_inv_o @ g_a_o
 
-    # delta_pose_o  = np.linalg.solve(H_schur_o, g_schur_o)
+    delta_pose_o  = np.linalg.solve(H_schur_o, g_schur_o)
 
-    # B_T_delta_T_o = B_o.transpose() @ delta_pose_o
-    # delta_a_o     = np.linalg.inv(H_aa_o + np.eye(H_aa_o.shape[0])*0.0001) @ (g_a_o - B_T_delta_T_o)
+    B_T_delta_T_o = B_o.transpose() @ delta_pose_o
+    delta_a_o     = np.linalg.inv(H_aa_o + np.eye(H_aa_o.shape[0])*0.0001) @ (g_a_o - B_T_delta_T_o)
 
-    # innovation = delta_pose_o[:6,:]
-    # update = manager.optimizer.LU.Exp_SE3(innovation)
+    innovation = delta_pose_o[:6,:]
+    update = manager.optimizer.LU.Exp_SE3(innovation)
     
-    # incremental_pose = manager.solver.getIncrementalPose(0)
-    # updated_state = incremental_pose @ update
+    incremental_pose = manager.solver.getIncrementalPose(0)
+    updated_state = incremental_pose @ update
 
+    print("H_schur_o")
+    print(H_schur_o)
+
+    print("g_schur_o")
+    print(g_schur_o)
+
+    # print("J_T_o")
+    # print(J_T_o)
+
+    # print("H_TT_o")
     # print(H_TT_o)
+
+    # print("g_T_o")
+    # print(g_T_o)
 
     # print("innovation")
     # print(innovation)
@@ -124,7 +137,7 @@ if __name__ == "__main__":
     manager.solver.step(1)
     t_stop  = time.monotonic_ns()
 
-    # print(delta_pose_o)
+    print(delta_pose_o)
 
     
 

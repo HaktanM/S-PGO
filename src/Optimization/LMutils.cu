@@ -11,66 +11,128 @@ void LMvariables::allocateMemory(int num_of_poses, int num_of_landmarks, int mea
     _measurement_count     = measurement_count;
     _number_of_poses       = num_of_poses;
 
+    cudaError_t err;
 
-    cudaMalloc((void**)&_incremental_poses,  _number_of_poses * 16 * sizeof(float));
+    err = cudaMalloc((void**)&_incremental_poses,  _number_of_poses * 16 * sizeof(float));
     cudaMemset(_incremental_poses, 0,        _number_of_poses * 16 * sizeof(float)); 
+    if (err != cudaSuccess) {
+        printf("cudaMalloc failed: %s\n", cudaGetErrorString(err));
+    }
     
-    cudaMalloc((void**)&_global_left_poses,  (_number_of_poses + 1) * 16 * sizeof(float));
+    err = cudaMalloc((void**)&_global_left_poses,  (_number_of_poses + 1) * 16 * sizeof(float));
     cudaMemset(_global_left_poses, 0,        (_number_of_poses + 1) * 16 * sizeof(float)); 
+    if (err != cudaSuccess) {
+        printf("cudaMalloc failed: %s\n", cudaGetErrorString(err));
+    }
 
-    cudaMalloc((void**)&_global_right_poses,  (_number_of_poses + 1) * 16 * sizeof(float));
+    err = cudaMalloc((void**)&_global_right_poses,  (_number_of_poses + 1) * 16 * sizeof(float));
     cudaMemset(_global_right_poses, 0,        (_number_of_poses + 1) * 16 * sizeof(float)); 
+    if (err != cudaSuccess) {
+        printf("cudaMalloc failed: %s\n", cudaGetErrorString(err));
+    }
 
-    cudaMalloc((void**)&d_J_T, _measurement_size * _number_of_pose_params * sizeof(float));
+    err = cudaMalloc((void**)&d_J_T, _measurement_size * _number_of_pose_params * sizeof(float));
     cudaMemset(d_J_T, 0,       _measurement_size * _number_of_pose_params * sizeof(float)); 
+    if (err != cudaSuccess) {
+        printf("cudaMalloc failed: %s\n", cudaGetErrorString(err));
+    }
 
-    cudaMalloc((void**)&d_r,   _measurement_size * sizeof(float));
+    err = cudaMalloc((void**)&d_r,   _measurement_size * sizeof(float));
     cudaMemset(d_r, 0,         _measurement_size * sizeof(float)); 
+    if (err != cudaSuccess) {
+        printf("cudaMalloc failed: %s\n", cudaGetErrorString(err));
+    }
 
-    cudaMalloc((void**)&d_A,   _number_of_pose_params * _number_of_pose_params * sizeof(float));
+    err = cudaMalloc((void**)&d_A,   _number_of_pose_params * _number_of_pose_params * sizeof(float));
     cudaMemset(d_A, 0,         _number_of_pose_params * _number_of_pose_params * sizeof(float)); 
+    if (err != cudaSuccess) {
+        printf("cudaMalloc failed: %s\n", cudaGetErrorString(err));
+    }
 
-    cudaMalloc((void**)&d_g_T, _number_of_pose_params * sizeof(float));
+    err = cudaMalloc((void**)&d_g_T, _number_of_pose_params * sizeof(float));
     cudaMemset(d_g_T, 0,       _number_of_pose_params * sizeof(float)); 
+    if (err != cudaSuccess) {
+        printf("cudaMalloc failed: %s\n", cudaGetErrorString(err));
+    }
        
-    cudaMalloc((void**)&d_C,     _number_of_landmarks * sizeof(float));
+    err = cudaMalloc((void**)&d_C,     _number_of_landmarks * sizeof(float));
     cudaMemset(d_C, 0,           _number_of_landmarks * sizeof(float)); 
+    if (err != cudaSuccess) {
+        printf("cudaMalloc failed: %s\n", cudaGetErrorString(err));
+    }
 
-    cudaMalloc((void**)&d_g_a,   _number_of_landmarks * sizeof(float));
+    err = cudaMalloc((void**)&d_g_a,   _number_of_landmarks * sizeof(float));
     cudaMemset(d_g_a, 0,         _number_of_landmarks * sizeof(float)); 
+    if (err != cudaSuccess) {
+        printf("cudaMalloc failed: %s\n", cudaGetErrorString(err));
+    }
 
-    cudaMalloc((void**)&d_B, _number_of_pose_params * _number_of_landmarks * sizeof(float));
+    err = cudaMalloc((void**)&d_B, _number_of_pose_params * _number_of_landmarks * sizeof(float));
     cudaMemset(d_B, 0,       _number_of_pose_params * _number_of_landmarks * sizeof(float)); 
+    if (err != cudaSuccess) {
+        printf("cudaMalloc failed: %s\n", cudaGetErrorString(err));
+    }
 
-    cudaMalloc((void**)&d_B_C_inv, _number_of_pose_params * _number_of_landmarks * sizeof(float));
+    err = cudaMalloc((void**)&d_B_C_inv, _number_of_pose_params * _number_of_landmarks * sizeof(float));
     cudaMemset(d_B_C_inv, 0,       _number_of_pose_params * _number_of_landmarks * sizeof(float)); 
+    if (err != cudaSuccess) {
+        printf("cudaMalloc failed: %s\n", cudaGetErrorString(err));
+    }
 
-    cudaMalloc((void**)&d_B_C_inv_B_T, _number_of_pose_params * _number_of_pose_params * sizeof(float));
+    err = cudaMalloc((void**)&d_B_C_inv_B_T, _number_of_pose_params * _number_of_pose_params * sizeof(float));
     cudaMemset(d_B_C_inv_B_T, 0,       _number_of_pose_params * _number_of_pose_params * sizeof(float)); 
+    if (err != cudaSuccess) {
+        printf("cudaMalloc failed: %s\n", cudaGetErrorString(err));
+    }
+    
 
-    cudaMalloc((void**)&d_B_C_inv_g_a, _number_of_pose_params * sizeof(float));
+    err = cudaMalloc((void**)&d_B_C_inv_g_a, _number_of_pose_params * sizeof(float));
     cudaMemset(d_B_C_inv_g_a, 0,       _number_of_pose_params * sizeof(float)); 
+    if (err != cudaSuccess) {
+        printf("cudaMalloc failed: %s\n", cudaGetErrorString(err));
+    }
+    
 
-    cudaMalloc((void**)&d_H_schur, _number_of_pose_params * _number_of_pose_params * sizeof(float));
+    err = cudaMalloc((void**)&d_H_schur, _number_of_pose_params * _number_of_pose_params * sizeof(float));
     cudaMemset(d_H_schur, 0,       _number_of_pose_params * _number_of_pose_params* sizeof(float)); 
+    if (err != cudaSuccess) {
+        printf("cudaMalloc failed: %s\n", cudaGetErrorString(err));
+    }
+    
 
-    cudaMalloc((void**)&d_g_schur, _number_of_pose_params * sizeof(float));
+    err = cudaMalloc((void**)&d_g_schur, _number_of_pose_params * sizeof(float));
     cudaMemset(d_g_schur, 0,       _number_of_pose_params * sizeof(float));  
+    if (err != cudaSuccess) {
+        printf("cudaMalloc failed: %s\n", cudaGetErrorString(err));
+    }
+    
 
-    cudaMalloc((void**)&d_B_T_delta_T, _number_of_landmarks * sizeof(float));
+    err = cudaMalloc((void**)&d_B_T_delta_T, _number_of_landmarks * sizeof(float));
     cudaMemset(d_B_T_delta_T, 0,       _number_of_landmarks * sizeof(float));
+    if (err != cudaSuccess) {
+        printf("cudaMalloc failed: %s\n", cudaGetErrorString(err));
+    }
+    
 
-    cudaMalloc((void**)&d_delta_a, _number_of_landmarks * sizeof(float));
+    err = cudaMalloc((void**)&d_delta_a, _number_of_landmarks * sizeof(float));
     cudaMemset(d_delta_a, 0,       _number_of_landmarks * sizeof(float));
+    if (err != cudaSuccess) {
+        printf("cudaMalloc failed: %s\n", cudaGetErrorString(err));
+    }
+    
 
-    cudaMalloc((void**)&d_T_r_to_l, 16 * sizeof(float));
+    err = cudaMalloc((void**)&d_T_r_to_l, 16 * sizeof(float));
     cudaMemset(d_T_r_to_l, 0,       16 * sizeof(float));
+    if (err != cudaSuccess) {
+        printf("cudaMalloc failed: %s\n", cudaGetErrorString(err));
+    }
+      
 };
 
 void LMvariables::resetMiddleVariables(){
 
-    // cudaMemset(_global_left_poses, 0,        (_number_of_poses + 1) * 16 * sizeof(float)); 
-    // cudaMemset(_global_right_poses, 0,        (_number_of_poses + 1) * 16 * sizeof(float)); 
+    cudaMemset(_global_left_poses, 0,        (_number_of_poses + 1) * 16 * sizeof(float)); 
+    cudaMemset(_global_right_poses, 0,        (_number_of_poses + 1) * 16 * sizeof(float)); 
     cudaMemset(d_J_T, 0,       _measurement_size * _number_of_pose_params * sizeof(float)); 
     cudaMemset(d_r, 0,         _measurement_size * sizeof(float)); 
     cudaMemset(d_A, 0,         _number_of_pose_params * _number_of_pose_params * sizeof(float)); 

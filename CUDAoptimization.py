@@ -14,10 +14,10 @@ class Manager():
     def __init__(self):
 
         # Number of keyframes
-        self.n = 3
+        self.n = 2
 
         # NUmber of landmarks per frame
-        self.m = 10
+        self.m = 50
 
         # Number of total landmarks 
         self.M = self.n * self.m
@@ -92,9 +92,9 @@ if __name__ == "__main__":
     errors = manager.compute_estimation_errors()
     print(np.array(errors))
 
-    for idx in range(1):
+    for idx in range(20):
         t_start = time.monotonic_ns()
-        manager.solver.step(1)
+        manager.solver.step(20)
         t_stop  = time.monotonic_ns()
 
         # print(f"Total elapsed_time : { (t_stop - t_start) * (1e-6) } milliseconds")

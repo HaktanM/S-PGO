@@ -393,7 +393,7 @@ class Renderer:
         for item in self.landmarks:
             add_landmark(item)
 
-        self.save_screenshot()
+        # self.save_screenshot()
 
         glutSwapBuffers()
 

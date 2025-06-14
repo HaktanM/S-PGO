@@ -79,6 +79,7 @@ public:
 
     void H_schur_to_txt();
     void g_schur_to_txt();
+    void delta_pose_to_txt();
 
     void d_B_T_delta_T_to_txt();
     void d_delta_a_to_txt();

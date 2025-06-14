@@ -72,8 +72,8 @@ class Optimizer():
             T_curr_next_noisy = T_curr_next @ T_noise
 
             # self.estimated_incremental_poses.append(T_curr_next_noisy)
-            self.estimated_incremental_poses.append(T_curr_next_noisy)
-            # self.estimated_incremental_poses.append(np.eye(4))
+            # self.estimated_incremental_poses.append(T_curr_next_noisy)
+            self.estimated_incremental_poses.append(np.eye(4))
 
     def initalize_depth_with_disparity(self, observations:dict):
         
@@ -138,7 +138,7 @@ class Optimizer():
         Each observation brings two measurements (x2)
         Right camera of the anchor frame brings (+1)
         """
-        size_of_single_observation = ( 2 * self.number_of_keyframes + 1) * 2
+        size_of_single_observation = ( 2 * self.number_of_keyframes + 2) * 2
         # size_of_single_observation = self.number_of_keyframes * 2
 
         observation_dimension = self.number_of_landmarks * size_of_single_observation
@@ -214,7 +214,9 @@ class Optimizer():
                     
                     # Jacobian with respect to
                     del_pn_del_alpha = self.del_pn_del_alpha(pa_hom=pa_hom, alpha=alpha, poses=estimated_global_poses, anchor_idx=anchor_idx, projection_idx=projection_idx, right=right)
-                    
+                    if not right and anchor_idx==projection_idx:
+                        del_pn_del_alpha = np.zeros_like(del_pn_del_alpha)
+
                     J_alpha_col_idx  = landmark_idx
                     J_alpha[row_idx:row_idx+2, J_alpha_col_idx:J_alpha_col_idx+1] = w * sqrt_w * del_pn_del_alpha[:2, :] 
                     r[row_idx:row_idx+2,0] = w * sqrt_w * residual[:2]
@@ -228,13 +230,13 @@ class Optimizer():
         g_T     = J_T.T @ r
         g_alpha = J_alpha.T @ r
 
-        # # First compute the inverse of a C
-        # # Note that C has to be diagonel
-        # C += np.eye(C.shape[0]) * 1e-3 # Required for stability
+        # First compute the inverse of a C
+        # Note that C has to be diagonel
+        C += np.eye(C.shape[0]) * 1e-3 # Required for stability
 
-        # # # H += np.eye(H.shape[0]) * 1e-6 # Required for stability
-        # delta_alpha = np.linalg.solve(C, g_alpha)
-        # delta_alpha = self.step_size * delta_alpha
+        # # H += np.eye(H.shape[0]) * 1e-6 # Required for stability
+        delta_alpha = np.linalg.solve(C, g_alpha)
+        delta_alpha = self.step_size * delta_alpha
 
         # Check if the matrix is diagonal
         C += np.eye(C.shape[0]) * 1e-3 # Required for stability
@@ -249,10 +251,11 @@ class Optimizer():
         g_T_new = g_T.reshape(-1,1) - (B_C_inv @ g_alpha).reshape(-1,1)
         
     
-        H_T_new += np.eye(H_T_new.shape[0]) * 1e2 # Required for stability
+        H_T_new += np.eye(H_T_new.shape[0]) * 1.0 # Required for stability
         delta_pose  = np.linalg.solve(H_T_new, g_T_new)
         delta_alpha = C_inv @ (g_alpha.reshape(-1,1)  - B.T @ delta_pose.reshape(-1,1)) # 
 
+        # delta_pose  = np.linalg.solve(A, g_T)   
         r_norm = np.linalg.norm(r)  
         if self.prev_norm > r_norm:
             self.step_size *= 1.01
@@ -272,7 +275,7 @@ class Optimizer():
         self.update_depths(delta_alpha=delta_alpha)
 
 
-        visualize_jacobian_and_residual_to_cv(J_T,r)
+        # visualize_jacobian_and_residual_to_cv(J_T,r)
         # visualize_hessian_and_g(H_T_new, g_T_new)
                         
 

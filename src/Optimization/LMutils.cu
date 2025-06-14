@@ -474,6 +474,27 @@ void LMvariables::g_schur_to_txt(){
 }
 
 
+
+void LMvariables::delta_pose_to_txt(){
+    // First load the matrix C into CPU
+    float *h_g_schur;
+    h_g_schur =(float *) malloc( _number_of_pose_params * sizeof(float));
+    cudaMemcpy(h_g_schur, d_g_schur,   _number_of_pose_params * sizeof(float), cudaMemcpyDeviceToHost);
+
+    // Create and open a text file
+    std::ofstream txt_file("delta_pose.txt");
+
+    // Write the C matrix into the txt
+    for(int col_idx=0; col_idx<_number_of_pose_params; col_idx++){
+        txt_file << h_g_schur[col_idx];
+        txt_file << std::endl;
+    }
+
+    // Close the file
+    txt_file.close();
+    free(h_g_schur);
+}
+
 void LMvariables::d_B_T_delta_T_to_txt(){
     // First load the matrix C into CPU
     float *h_B_T_delta_T;

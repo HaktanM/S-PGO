@@ -10,14 +10,19 @@ from PythonUtils.visualization_utils import visualize_jacobian_and_residual_to_c
 
 from PythonUtils.Optimizer import Optimizer
 
+
+import matplotlib.pyplot as plt
+
+
+
 class Manager():
     def __init__(self):
 
         # Number of keyframes
-        self.n = 1
+        self.n = 12
 
         # NUmber of landmarks per frame
-        self.m = 2
+        self.m = 96
 
         # Number of total landmarks 
         self.M = self.n * self.m
@@ -91,7 +96,7 @@ if __name__ == "__main__":
     B_C_inv_o = B_o @ np.linalg.inv(H_aa_o + np.eye(H_aa_o.shape[0])*0.0001)
     B_C_inv_B_T_o = B_C_inv_o @ B_o.transpose()
 
-    H_schur_o = H_TT_o - B_C_inv_B_T_o + np.eye(H_TT_o.shape[0]) * 0.1
+    H_schur_o = H_TT_o - B_C_inv_B_T_o 
     g_schur_o = g_T_o  - B_C_inv_o @ g_a_o
 
     delta_pose_o  = np.linalg.solve(H_schur_o, g_schur_o)
@@ -105,47 +110,51 @@ if __name__ == "__main__":
     incremental_pose = manager.solver.getIncrementalPose(0)
     updated_state = incremental_pose @ update
 
-    print("H_schur_o")
-    print(H_schur_o)
+    # print("H_schur_o")
+    # print(H_schur_o)
 
-    print("g_schur_o")
-    print(g_schur_o)
+    # print("g_schur_o")
+    # print(g_schur_o)
 
-    # print("J_T_o")
-    # print(J_T_o)
-
-    # print("H_TT_o")
-    # print(H_TT_o)
-
-    # print("g_T_o")
-    # print(g_T_o)
-
-    # print("innovation")
-    # print(innovation)
-
-    # print("update")
-    # print(update)
-
-    # print("updated_state")
-    # print(updated_state)
-
-    # print("incremental_pose")
-    # print(incremental_pose)
-
+    # print("delta_a_o")
+    # print(delta_a_o)
 
     t_start = time.monotonic_ns()
     manager.solver.step(1)
     t_stop  = time.monotonic_ns()
 
-    print(delta_pose_o)
+    H_schur     = np.loadtxt("H_schur.txt", delimiter=",")
+    g_schur     = np.loadtxt("g_schur.txt", delimiter=",")
+    delta_pose  = np.loadtxt("delta_pose.txt", delimiter=",")
 
-    
+    # visualize_hessian_and_g(H_schur, g_schur)
+
+    # ev, _ = np.linalg.eig(H_schur)
+    # ev_o, _ = np.linalg.eig(H_schur_o)
+
+    # print(ev)
+    # print("---------")
+    # print(ev_o)
+
+    delta_pose_co  = np.linalg.solve(H_schur, g_schur)
+
+    fig, axes = plt.subplots(4, 1, figsize=(8, 8))  # Adjust figsize as needed
+        # Example: Plot something in each subplot
+    axes[0].plot(H_schur_o.flatten(), color="green")
+    axes[0].plot(H_schur.flatten()  , "--", color="red")
+
+    axes[1].plot(g_schur_o.flatten(), color="green")
+    axes[1].plot(g_schur.flatten()  , "--",   color="red")
+
+    axes[2].plot(delta_pose_o.flatten(), color="green")
+    axes[2].plot(delta_pose.flatten()  , "--", color="red")
+    axes[2].plot(delta_pose_co.flatten(), "--", color="blue")
+
+    axes[3].plot((H_schur_o - H_schur).flatten(), color="green")
+
+    plt.show()
 
 
-    # incremental_pose = manager.solver.getIncrementalPose(0)
-
-    # print("incremental_pose")
-    # print(incremental_pose)
 
     
 

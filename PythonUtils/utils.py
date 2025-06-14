@@ -21,7 +21,7 @@ class SamplePoses():
         phi_rw = 0.0
         for _ in range(n):
             # Sample a random position on a sphere of radius r
-            r     = np.random.uniform(2.0 + _*0.5, 2.5 + _*0.5)  # radius of the camera orbit
+            r     = np.random.uniform(2.5, 3.5)  # radius of the camera orbit
             # theta = np.random.uniform(0, 2 * np.pi)
             # phi   = np.random.uniform(0, np.pi)
 
@@ -37,8 +37,8 @@ class SamplePoses():
             # y = r * np.sin(phi) * np.sin(theta)
             # z = r * np.cos(phi)
 
-            theta_rw += np.abs ( np.random.uniform(0.0, 45.0) * np.pi / 180.0 )
-            phi_rw   += np.abs ( np.random.uniform(0.0, 50.0) * np.pi / 180.0 )
+            theta_rw += np.abs ( np.random.uniform(0.0, 20.0) * np.pi / 180.0 )
+            phi_rw   += np.abs ( np.random.uniform(0.0, 20.0) * np.pi / 180.0 )
 
             x = r * np.sin(phi_rw) * np.cos(theta_rw) * np.random.uniform(0.9, 1.1)
             y = r * np.sin(phi_rw) * np.sin(theta_rw) * np.random.uniform(0.9, 1.1)

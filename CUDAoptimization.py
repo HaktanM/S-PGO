@@ -9,15 +9,18 @@ import time
 from PythonUtils.visualization_utils import visualize_jacobian_and_residual_to_cv, visualize_hessian_and_g
 
 from PythonUtils.Optimizer import Optimizer
+from PythonUtils.SceneRenderer import Renderer
+
+import threading
 
 class Manager():
     def __init__(self):
 
         # Number of keyframes
-        self.n = 2
+        self.n = 12
 
         # NUmber of landmarks per frame
-        self.m = 50
+        self.m = 96
 
         # Number of total landmarks 
         self.M = self.n * self.m
@@ -38,11 +41,31 @@ class Manager():
         # Load Observations to solver
         self.loadObservations()
 
-        # Load estimated inverse depths to the solver
-        self.loadInverseDepths()
+        # # Load estimated inverse depths to the solver
+        # self.loadInverseDepths()
 
         # Load estimated incremental poses to solver
         self.loadIncrementalPoses()
+
+        # Finally, initialize the visualizer
+        self.initialize_the_visualizer()
+
+    def initialize_the_visualizer(self):
+        # Initialize the visualizer
+        self.visualizer = Renderer()
+
+        # Add our frames to visualizer
+        for actual_pose in self.simulator.poses:
+            self.visualizer.cam_frames.append(actual_pose)
+
+        # Add landmarks to our visualizer
+        for point in self.simulator.points:
+            self.visualizer.landmarks.append(point)
+
+        # Add estimated poses as es well
+        estimated_poses = self.optimizer.get_estimated_global_poses(T_curr_global=self.simulator.poses[0])
+        for estimated_pose in estimated_poses:
+            self.visualizer.estimated_cam_frames.append(estimated_pose)
 
     def loadObservations(self):
         for landmark_idx in range(self.M): 
@@ -57,7 +80,7 @@ class Manager():
 
     def loadIncrementalPoses(self):
         for idx, incremental_pose in enumerate(self.optimizer.estimated_incremental_poses):
-            self.solver.writeIncrementalPose(idx, incremental_pose.reshape(16))
+            self.solver.writeIncrementalPose(idx, incremental_pose.astype(np.float32).reshape(16))
 
     def loadCalibration(self):
         intrinsics = np.array([
@@ -84,22 +107,44 @@ class Manager():
             xi = self.optimizer.LU.Log_SE3(error_T)
             errors.append(np.linalg.norm(xi))
         return errors
-    
+
+    def update_visualizer(self, T_curr_global = None):
+        # If we don't have any initial condition, initialize with identity
+        if T_curr_global is None:
+            T_curr_global = np.eye(4)
+
+        print(T_curr_global)
+        # Compute the global poses and append
+        for idx in range(self.n):
+
+            T_curr_next = self.solver.getIncrementalPose(idx)
+            T_curr_global = T_curr_global @ np.linalg.inv(T_curr_next)
+            self.visualizer.estimated_cam_frames[idx] = T_curr_global
+
+    def optimization_loop(self): 
+        time.sleep(3)
+        while True:
+            self.solver.step(1)
+            errors = self.compute_estimation_errors()
+            print(np.array(errors))
+            self.update_visualizer(T_curr_global = self.simulator.poses[0])
+            time.sleep(1)
+
+
 if __name__ == "__main__":
     manager = Manager()
 
 
-    errors = manager.compute_estimation_errors()
-    print(np.array(errors))
+    worker = threading.Thread(
+        target=manager.optimization_loop,
+        daemon=True            # ensures the thread won’t block process exit
+    )
+    worker.start()
 
-    for idx in range(20):
-        t_start = time.monotonic_ns()
-        manager.solver.step(20)
-        t_stop  = time.monotonic_ns()
+    manager.visualizer.start_rendering()
 
-        # print(f"Total elapsed_time : { (t_stop - t_start) * (1e-6) } milliseconds")
+    worker.join()
 
-        errors = manager.compute_estimation_errors()
-        print(np.array(errors))
+        
 
     

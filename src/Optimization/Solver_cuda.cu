@@ -563,7 +563,7 @@ void updateState(
 ){
 
 
-    // auto start = std::chrono::high_resolution_clock::now();
+    // 
 
     LMvariables h_lm_var;
     h_lm_var.allocateMemory(num_of_poses, num_of_landmark, measurement_count);
@@ -584,6 +584,7 @@ void updateState(
     cudaDeviceSynchronize();
 
     for(int it_idx=0; it_idx<iterations; it_idx++){
+        // auto start = std::chrono::high_resolution_clock::now();
 
         // Compute Global Poses First
         computeGlobalPoses<<<NUM_BLOCKS(1), NUM_THREADS>>>(d_lm_var);
@@ -722,23 +723,9 @@ void updateState(
 
         cudaStreamSynchronize(cublas_stream);
         cudaDeviceSynchronize();
-        
-        
-        printArr<<<NUM_BLOCKS(h_lm_var._number_of_pose_params), NUM_THREADS>>>(
-            h_lm_var.d_g_schur,
-            h_lm_var._number_of_pose_params
-        );
-        h_lm_var.H_schur_to_txt();
-
-        // cudaStreamSynchronize(cublas_stream);
-        // add_damping_to_schur<<<NUM_BLOCKS(h_lm_var._number_of_pose_params), NUM_THREADS>>>(d_lm_var);
-        // cudaStreamSynchronize(cublas_stream);
 
         // Compute delta T
-        h_lm_var.solve_Cholesky();
-
-        h_lm_var.g_schur_to_txt();
-        
+        h_lm_var.solve_Eigen();
 
         // Compute delta alpha
         err_cublas = cublasSgemm(
@@ -777,6 +764,11 @@ void updateState(
 
         h_lm_var.resetMiddleVariables();
         cudaDeviceSynchronize();
+
+        // auto end = std::chrono::high_resolution_clock::now();
+        // auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+
+        // std::cout << "Elapsed time :" << duration.count() << " milliseconds" << std::endl;
         
     }
 
@@ -787,10 +779,7 @@ void updateState(
     );
     cudaDeviceSynchronize();
 
-    // auto end = std::chrono::high_resolution_clock::now();
-    // auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
-
-    // std::cout << "Elapsed time :" << duration.count() << " milliseconds" << std::endl;
+    
     
     cudaFree(d_lm_var);
     h_lm_var.freeAll();

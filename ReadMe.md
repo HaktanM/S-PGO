@@ -30,6 +30,6 @@ class Manager():
 
 
 ## What is so special about this repo
-I have implemented **Levenberg-Marquardt** for stereo pose estimation on CUDA. The pose graph contains **over 1000 edges**. This implementation efficiently computes the Hessian matrix, applies Schur’s complement, and solves the system in **under 50 milliseconds on an NVIDIA GeForce RTX 2060** for a single optimization step.
+I have implemented **Levenberg-Marquardt** for stereo pose estimation on CUDA. The pose graph contains **over 10000 edges**. This implementation efficiently computes the Hessian matrix, applies Schur’s complement, and solves the system in **under 50 milliseconds on an NVIDIA GeForce RTX 2060** for a single optimization step.
 
 The goal of this repository is to demonstrate how to efficiently implement and solve a pose graph optimization on the GPU. **Detailed documentation will be available soon!**

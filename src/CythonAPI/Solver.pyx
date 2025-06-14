@@ -102,3 +102,6 @@ cdef class CudaSolver:
         self.thisptr.getInverseDepths(&inverse_depths_view[0])
 
         return inverse_depths
+
+    def setStepSize(self, step_size):
+        self.thisptr._step_size = step_size

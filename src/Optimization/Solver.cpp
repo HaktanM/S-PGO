@@ -21,7 +21,8 @@ void Solver::step(int iterations){
         num_of_poses,
         num_of_landmarks,
         measurement_count,
-        iterations
+        iterations,
+        _step_size
     );
 }
 

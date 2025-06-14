@@ -490,7 +490,8 @@ __global__ void computeGlobalPoses(
 
 void __global__ updateEstimation(
     LMvariables *lm_var,
-    torch::PackedTensorAccessor32<float,1,torch::RestrictPtrTraits> inverse_depths
+    torch::PackedTensorAccessor32<float,1,torch::RestrictPtrTraits> inverse_depths,
+    const float step_size
 ){
     // Get the size of the alpha vector
     int number_of_poses      = lm_var->_number_of_poses;
@@ -507,9 +508,9 @@ void __global__ updateEstimation(
         float updated_incremental_pose[16];
         float state_innovation[16];
 
-        // for(int idx=0; idx<6; ++idx){
-        //     lm_var->d_g_schur[pose_idx * 6 + idx] = 0.1 * lm_var->d_g_schur[pose_idx * 6 + idx];
-        // }
+        for(int idx=0; idx<6; ++idx){
+            lm_var->d_g_schur[pose_idx * 6 + idx] = step_size * lm_var->d_g_schur[pose_idx * 6 + idx];
+        }
 
         ExpSE3(
             &lm_var->d_g_schur[pose_idx * 6],
@@ -539,7 +540,7 @@ void __global__ updateEstimation(
         updated_inverse_depth = fminf(fmaxf(updated_inverse_depth, lm_var->_min_inv_depth), lm_var->_max_inv_depth);
 
         // Rewrite the inverse depth
-        inverse_depths[landmark_idx] += lm_var->d_delta_a[landmark_idx];
+        inverse_depths[landmark_idx] += step_size * lm_var->d_delta_a[landmark_idx];
 
         inverse_depths[landmark_idx] = updated_inverse_depth;
     }
@@ -559,7 +560,8 @@ void updateState(
     const int num_of_poses,
     const int num_of_landmark,
     const int measurement_count,
-    const int iterations
+    const int iterations,
+    const float step_size
 ){
 
 
@@ -751,7 +753,8 @@ void updateState(
         // Finally, update the estimation
         updateEstimation<<<NUM_BLOCKS(h_lm_var._number_of_poses + h_lm_var._number_of_landmarks), NUM_THREADS>>>(
             d_lm_var,
-            inverse_depths.packed_accessor32<float,1,torch::RestrictPtrTraits>()
+            inverse_depths.packed_accessor32<float,1,torch::RestrictPtrTraits>(),
+            step_size
         );
 
         cudaDeviceSynchronize();

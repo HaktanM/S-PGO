@@ -1,0 +1,9 @@
+torch
+numpy
+cython
+opencv-python
+PyOpenGL
+GLU
+pypose
+scipy
+matplotlib

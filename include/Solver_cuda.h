@@ -27,7 +27,8 @@ void updateState(
     const int num_of_poses,
     const int num_of_landmarks,
     const int measurement_count,
-    const int iterations
+    const int iterations,
+    const float step_size
 );
 
 #endif

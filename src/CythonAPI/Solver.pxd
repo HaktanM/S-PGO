@@ -20,4 +20,5 @@ cdef extern from "Solver.hpp":
 
         int _number_of_keyframes
         int _number_of_observations_per_frame
+        float _step_size
         

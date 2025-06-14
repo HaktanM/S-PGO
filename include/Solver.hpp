@@ -78,6 +78,8 @@ public:
     int _number_of_keyframes, _number_of_observations_per_frame;
     torch::Tensor _observations, _incremental_poses, _inverse_depths, _anchor_frame_id, _target_frame_id, _feat_glob_id;
     int _counter{0};
+    float _step_size{1.0};
+
 private:
     torch::Tensor _intrinsics, _T_r_to_l;
     torch::TensorOptions _options_float, _options_int;

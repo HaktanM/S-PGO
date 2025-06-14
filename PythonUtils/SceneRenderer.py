@@ -3,6 +3,8 @@ from OpenGL.GL import *
 from OpenGL.GLUT import *
 from OpenGL.GLU import *
 
+import cv2
+
 def draw_cube(center=(0.0, 0.0, 0.0)):
     glBegin(GL_QUADS)
 
@@ -213,6 +215,9 @@ class Renderer:
         # Landmarks to be visualized
         self.landmarks  = []
 
+        # This is used when saving the scene
+        self.frame_id = 0
+
     def zoom_in(self):
         looking_direction = self.camera_pos - self.target_pos
         looking_direction = looking_direction * 0.9
@@ -388,6 +393,8 @@ class Renderer:
         for item in self.landmarks:
             add_landmark(item)
 
+        self.save_screenshot()
+
         glutSwapBuffers()
 
     # Function to handle window resizing
@@ -428,6 +435,26 @@ class Renderer:
         glutTimerFunc(self.timer_interval, self.timer_callback, 0)
 
         glutMainLoop()  # Start the main loop
+
+    def save_screenshot(self):
+        width = glutGet(GLUT_WINDOW_WIDTH)
+        height = glutGet(GLUT_WINDOW_HEIGHT)
+
+        glPixelStorei(GL_PACK_ALIGNMENT, 1)
+        pixels = glReadPixels(0, 0, width, height, GL_RGB, GL_UNSIGNED_BYTE)
+        image = np.frombuffer(pixels, dtype=np.uint8).reshape(height, width, 3)
+
+        # Flip vertically (OpenGL origin is bottom-left; OpenCV expects top-left)
+        image = np.flipud(image)
+
+        # Convert RGB to BGR for OpenCV
+        image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
+
+        os.makedirs("render_output", exist_ok=True)
+        filename = f"render_output/{self.frame_id:04d}.png"
+        cv2.imwrite(filename, image)
+
+        self.frame_id += 1
 
 if __name__ == "__main__":
     renderer = Renderer()

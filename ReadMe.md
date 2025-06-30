@@ -38,16 +38,16 @@ The goal of this repository is to demonstrate how to efficiently implement and s
 ## Time Benchmarking
 To evaluate the effectiveness of our CUDA implementation, we report the elapsed time for a single optimization step, comparing both the Python and CUDA implementations in the table.
 
-| Test   | Key Frames | Landmarks per Frame | Total Measurements | CPU Time (ms) | CUDA Time (ms) |
+| Test | Number of Key Frames | Number of Landmarks per Frame | Total Measurements | CPU Time (ms) | CUDA Time (ms) |
 | ------ | ---------- | ------------------- | ------------------ | ------------- | -------------- |
-| Test 1 | 3          | 48                  | 1,728              | 135           | 2.20           |
-| Test 2 | 3          | 96                  | 3,456              | 261           | 2.29           |
-| Test 3 | 6          | 48                  | 5,184              | 679           | 11.43          |
-| Test 4 | 6          | 96                  | 10,368             | 1,422         | 10.86          |
-| Test 5 | 9          | 48                  | 10,368             | 2,137         | 27.94          |
-| Test 6 | 9          | 96                  | 20,736             | 4,433         | 27.68          |
-| Test 7 | 12         | 48                  | 17,280             | 5,442         | 59.20          |
-| Test 8 | 12         | 96                  | 34,560             | 10,961        | 62.22          |
-| Test 9 | 12         | 128                 | 46,080             | 14,903        | 60.04          |
+|   1  | 3          | 48                  | 1,728              | 135           | 2.20           |
+|   2  | 3          | 96                  | 3,456              | 261           | 2.29           |
+|   3  | 6          | 48                  | 5,184              | 679           | 11.43          |
+|   4  | 6          | 96                  | 10,368             | 1,422         | 10.86          |
+|   5  | 9          | 48                  | 10,368             | 2,137         | 27.94          |
+|   6  | 9          | 96                  | 20,736             | 4,433         | 27.68          |
+|   7  | 12         | 48                  | 17,280             | 5,442         | 59.20          |
+|   8  | 12         | 96                  | 34,560             | 10,961        | 62.22          |
+|   9  | 12         | 128                 | 46,080             | 14,903        | 60.04          |
 
 The Table presents the elapsed times for a single optimization iteration. It is immediately apparent that the Python implementation scales approximately linearly with the total number of measurements. In contrast, the CUDA implementation's runtime is largely influenced by the number of keyframes. This behavior arises because certain operations are inherently serial and strongly dependent on the number of keyframes, ultimately dominating the overall execution time. **An in depth analysis will be presented in the upcoming paper!!!**

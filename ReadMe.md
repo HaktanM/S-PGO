@@ -38,7 +38,7 @@ The goal of this repository is to demonstrate how to efficiently implement and s
 ## Time Benchmarking
 To evaluate the effectiveness of our CUDA implementation, we report the elapsed time for a single optimization step, comparing both the Python and CUDA implementations in the table.
 
-| Test | Number of Key Frames | Number of Landmarks per Frame | Total Measurements | CPU Time (ms) | CUDA Time (ms) |
+| Test | Number of Key Frames | Number of Landmarks per Frame | Total Measurement Size | CPU Time (ms) | CUDA Time (ms) |
 | ------ | ---------- | ------------------- | ------------------ | ------------- | -------------- |
 |   1  | 3          | 48                  | 1,728              | 135           | 2.20           |
 |   2  | 3          | 96                  | 3,456              | 261           | 2.29           |

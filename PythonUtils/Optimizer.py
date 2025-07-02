@@ -57,23 +57,22 @@ class Optimizer():
         self.prev_norm  = 1e10
 
     
-    def initialize_estimated_incremental_poses(self, actual_incremental_poses):
+    def initialize_estimated_poses(self, actual_poses):
         """
         Initialize the estimated poses around the actual incremental poses
         """
         # Initialize the incremental poses 
-        self.estimated_incremental_poses = []
+        self.estimated_poses = []
 
         for idx in range(self.number_of_keyframes):
             noise   = pp.randn_se3(1) * 0.1
             T_noise = noise.Exp().matrix().cpu().numpy().reshape(4,4)
 
-            T_curr_next = actual_incremental_poses[idx]
-            T_curr_next_noisy = T_curr_next @ T_noise
+            T_c_g = actual_poses[idx]
+            T_c_g_noisy = T_c_g @ T_noise
 
-            # self.estimated_incremental_poses.append(T_curr_next_noisy)
-            # self.estimated_incremental_poses.append(T_curr_next_noisy)
-            self.estimated_incremental_poses.append(np.eye(4))
+            # self.estimated_poses.append(T_c_g_noisy)
+            self.estimated_poses.append(np.eye(4))
 
     def initalize_depth_with_disparity(self, observations:dict):
         
@@ -104,21 +103,17 @@ class Optimizer():
 
             self.estimated_inverse_depths[landmark_idx] = 1 / depth
 
-            
-
-    def get_estimated_global_poses(self,T_curr_global=None):
-        
+    def get_estimated_global_poses(self,T_c0_g=None):
         # If we don't have any initial condition, initialize with identity
-        if T_curr_global is None:
-            T_curr_global = np.eye(4)
+        if T_c0_g is None:
+            T_c0_g = np.eye(4)
 
         # Compute the global poses and append
         estimated_global_poses = []
-        estimated_global_poses.append(T_curr_global)
-        for T_curr_next in self.estimated_incremental_poses:
-            T_curr_global = T_curr_global @ np.linalg.inv(T_curr_next)
-            estimated_global_poses.append(T_curr_global)
-
+        estimated_global_poses.append(T_c0_g)
+        for T_c_c0 in self.estimated_poses:
+            T_c_g = T_c0_g @ T_c_c0
+            estimated_global_poses.append(T_c_g)
         return estimated_global_poses
     
 
@@ -145,10 +140,6 @@ class Optimizer():
         # Size of total observations
         observation_dimension = self.number_of_landmarks * size_of_single_observation
 
-        # Get the estimated global poses
-        estimated_global_poses = self.get_estimated_global_poses()
-        
-
         # Initialize the Jacobian and residual matrices
         J = np.zeros((observation_dimension, state_dim))
         r = np.zeros((observation_dimension,1))
@@ -160,7 +151,7 @@ class Optimizer():
             anchor_idx = map_value_to_index(v=landmark_idx, x=self.number_of_landmarks, n=self.number_of_keyframes)
 
             # Pose of the anchor frame
-            T_ca_to_g = estimated_global_poses[anchor_idx]   
+            T_ca_to_g = self.estimated_poses[anchor_idx]   
 
             # Homogenous pixel coordinates of the landmark at the anchor frame
             pa_hom = observations[anchor_idx][landmark_idx][False]
@@ -173,56 +164,56 @@ class Optimizer():
             t_feat_in_g_hom  = T_ca_to_g @ t_feat_in_ca_hom
             t_feat_in_g      = t_feat_in_g_hom[:3].reshape(3,1)
 
-
-            for right in [False]:
-                start_idx = 0 if right else 1
-                for projection_idx in range(start_idx, self.number_of_keyframes+1):
+            for projection_idx in range(anchor_idx, self.number_of_keyframes):
                 
+                # Get the estimated camera pose with respect to global reference frame
+                T_cnl_to_g = self.estimated_poses[projection_idx]    # Pose of the left cam at time projection_idx
+                
+                # Compute the pose of the landmark in left camera frame
+                t_feat_in_cnl_hom =  np.linalg.inv(T_cnl_to_g) @ t_feat_in_g_hom
+                t_feat_in_cnl     = t_feat_in_cnl_hom[:3].reshape(3,1)
+
+                # Compute the pose of the landmark in RİGHT camera frame
+                t_feat_in_cnr_hom =  self.cam.T_l_r @ t_feat_in_cnl_hom
+                t_feat_in_cnr     = t_feat_in_cnr_hom[:3].reshape(3,1)
+
+                # Compute the column index
+                J_col_idx = 6 * projection_idx
+
+                ####################### COMPUTE THE PROJECTION FOR THE LEFT CAMERA FIRST #######################
+    
+                # Compute the residual
+                observation   = observations[projection_idx][landmark_idx][False]
+                estimation, _ = self.cam.project(T_cam_in_global=T_cnl_to_g, t_feat_in_global=t_feat_in_g, right=False)
+                residual      = observation.reshape(3) - estimation.reshape(3)
+
+                # Compute the Jacobian
+                del_pnl_del_tnl = self.cam.Kl @ self.jacobian_of_projection(vec=t_feat_in_cnl)
+                del_tnl_del_xin = self.del_tnl_del_xin(t_feat_cnl=t_feat_in_cnl) 
+                del_pnl_del_xin = del_pnl_del_tnl @ del_tnl_del_xin
+
+                # Fill the residual and Jacobian matrices
+                r[J_row_idx:J_row_idx+2,0] = residual[:2]
+                J[J_row_idx:J_row_idx+2, J_col_idx:J_col_idx+6] = del_pnl_del_xin[:2, :] 
+
+                J_row_idx += 2
+
+                ####################### COMPUTE THE PROJECTION FOR THE RIGHT CAMERA NOW #######################
+                # Compute the residual
+                observation   = observations[projection_idx][landmark_idx][True]
+                estimation, _ = self.cam.project(T_cam_in_global=T_cnl_to_g, t_feat_in_global=t_feat_in_g, right=True)
+                residual      = observation.reshape(3) - estimation.reshape(3)
+
+                # Compute the Jacobian
+                del_pnr_del_tnl = self.cam.Kl @ self.jacobian_of_projection(vec=t_feat_in_cnr)
+                del_tnr_del_xin = self.cam.T_l_r[:3, :3] @ del_tnl_del_xin
+                del_pnr_del_xin = del_pnr_del_tnl @ del_tnr_del_xin
             
-                    # Jacobian of the measurement with respect to which state
-                    for i in range(anchor_idx,projection_idx):
-                        del_pn_del_xi = self.del_d_pn_del_xi(pa_hom=observations[anchor_idx][landmark_idx][False], alpha=actual_depths[anchor_idx][landmark_idx][False], anchor_idx=anchor_idx, projection_idx=projection_idx, i=i, right=right)
-                      
-                        # Get the estimated camera pose with respect to global reference frame
-                        T_cn_to_g = estimated_global_poses[projection_idx]    # Pose of the left cam at time projection_idx
-                        
-                        # Compute the residual
-                        observation   = observations[projection_idx][landmark_idx][right]
-                        estimation, _ = self.cam.project(T_cam_in_global=T_cn_to_g, t_feat_in_global=t_feat_in_g, right=right)
-                        residual      = observation.reshape(3) - estimation.reshape(3)
-                    
-                        # Compute the column index
-                        J_col_idx = 6 * i
+                # Fill the residual and Jacobian matrices
+                r[J_row_idx:J_row_idx+2,0] = residual[:2]
+                J[J_row_idx:J_row_idx+2, J_col_idx:J_col_idx+6] = del_pnr_del_xin
 
-                        
-                        # if projection_idx > anchor_idx:
-                        #     distance_weight = 1.0 / ((projection_idx - anchor_idx)**2)
-                        # else:
-                        #     distance_weight = 0.0
-                        # residual = distance_weight * residual
-
-                        # If the measurement is not in the image frame, ignore it
-                        if observation[0]<0 or observation[1]<0 or observation[0]>self.cam.width or observation[1]>self.cam.height or alpha < 0.2:
-                            w = 0.0
-                        else:
-                            w = 1.0
-
-                        if _<0.0:
-                            w = 0.0
-
-                        residual = residual * w
-
-
-                        cauchy_c = 1.0  # Robustness parameter — tune this
-                        norm = np.linalg.norm(residual)
-                        weight = 1.0 / (1.0 + (norm / cauchy_c) ** 2)
-                        sqrt_w = np.sqrt(weight)
-
-
-                        # Fill the residual and Jacobian matrices
-                        r[J_row_idx:J_row_idx+2,0] = w * sqrt_w * residual[:2]
-                        J[J_row_idx:J_row_idx+2, J_col_idx:J_col_idx+6] = - w * sqrt_w * del_pn_del_xi[:2, :] 
-                    J_row_idx += 2
+                J_row_idx += 2
 
         # zero_rows = np.sum(np.all(np.abs(J) < 10.0, axis=1))
         # print(f"Zero Jacobian rows: {zero_rows}/{J.shape[0]}")
@@ -231,33 +222,21 @@ class Optimizer():
         H = J.T @ J
         g = J.T @ r
 
-        # lambda_damping = 1e-1  # or adapt based on convergence
-        # H_damped = H + lambda_damping * np.eye(H.shape[0])
+        # # H += np.eye(H.shape[0]) * 1e-6 # Regularization term for numeric stability
+        # delta_state = - np.linalg.solve(H, g)
+        # delta_state = self.step_size * delta_state
 
-        # H += np.eye(H.shape[0]) * 1e-6 # Regularization term for numeric stability
-        delta_state = - np.linalg.solve(H, g)
-        delta_state = self.step_size * delta_state
-
-        r_norm = np.linalg.norm(r)  
-        if self.prev_norm > r_norm:
-            self.step_size *= 1.01
-        elif self.prev_norm < r_norm:
-            self.step_size *= 0.9     
-
-        self.step_size = max(self.step_size, 0.02)
-        self.step_size = min(self.step_size, 10.0)
-        print(f"step_size : {self.step_size}, r_norm : {r_norm}")
-        self.prev_norm = r_norm
-
-        if np.any(np.isnan(delta_state)):
-            print("Divergence detected, resetting or skipping update.")
-            return
-
-        # Finally, update the estimated incremental states
-        self.update_incremental_states(delta_state=delta_state)
+        # # Finally, update the estimated incremental states
+        # self.update_incremental_states(delta_state=delta_state)
 
 
         visualize_jacobian_and_residual_to_cv(J,r)
+
+    def del_tnl_del_xin(self, t_feat_cnl:np.array):
+        del_tnl_del_xin = np.zeros((3,6))
+        del_tnl_del_xin[:3, :3] = self.LU.skew(t_feat_cnl)
+        del_tnl_del_xin[3:, 3:] = -np.eye(3)
+        return del_tnl_del_xin
 
 
     def step_depth_only(self, observations:dict, actual_poses:list, actual_depths:dict):
@@ -406,87 +385,6 @@ class Optimizer():
             clipped_val = max(self.min_alpha, min(val, self.max_alpha))
             self.estimated_inverse_depths[idx] = clipped_val
 
-    def del_d_pn_del_xi(self, pa_hom:np.array, alpha:float, anchor_idx:int, projection_idx:int, i:int, right=False):
-        
-        """
-        Computes the Jacobian of the projected landmark (pn) with respect to the incremental pose (xi_i).
-
-        Parameters:
-        ----------
-        pa_hom : np.array
-            Homogeneous pixel coordinates of the landmark at the anchor frame
-
-        alpha : float
-            Inverse depth of the landmark relative to the anchor frame.
-            
-        anchor_idx : int
-            Index of the anchor frame (the frame where the landmark was originally observed).
-            
-        projection_idx : int
-            Index of the projection frame (the frame where the landmark is being reprojected).
-            
-        i : int
-            Index of the pose increment with respect to which the derivative is being computed.
-            
-        right : bool, optional (default=False)
-            If True, computes the derivative from the right side (used in right Jacobians).
-
-        Returns:
-        -------
-        np.ndarray
-            The Jacobian matrix of the landmark projection in the camera frame (pn) with respect to xi_i.
-        """
-
-        # The Jacobian is nonzero only if the incremental pose 'i' lies within the causal path 
-        # from the anchor frame to the projection frame. 
-        # This ensures that only poses that causally influence the landmark projection contribute to the Jacobian.
-        is_causal = (anchor_idx <= i < projection_idx)
-        if not is_causal:
-            del_pn_del_xi = np.zeros((3,6))
-            return del_pn_del_xi
-
-        # Get the global poses
-        estimated_global_poses = self.get_estimated_global_poses()
-        T_ca_to_g = estimated_global_poses[anchor_idx]        # Pose of the anchor frame
-        T_ci_to_g = estimated_global_poses[i]                 # Pose of the left cam at time i
-        T_cn_to_g = estimated_global_poses[projection_idx]    # Pose of the left cam at time projection_idx
-
-        if right:
-            # Adjust for left-to-right baseline
-            T_cn_to_g = T_cn_to_g @ self.cam.T_r_l                  
-
-        # Compute the T_ca_to_ci 
-        T_ca_to_ci = np.linalg.inv(T_ci_to_g) @ T_ca_to_g
-
-        # Compute the T_ca_to_cn 
-        T_ca_to_cn = np.linalg.inv(T_cn_to_g) @ T_ca_to_g
-
-        # Compute the T_ci_to_cn 
-        T_ci_to_cn = np.linalg.inv(T_cn_to_g) @ T_ci_to_g
-
-        # Compute the t_feat_in_ca
-        t_feat_in_ca     = self.cam.Kl_inv @ pa_hom.reshape(3,1) / alpha
-        t_feat_in_ca_hom = np.append(t_feat_in_ca, 1).reshape(4, 1)
-
-        # Compute the t_feat_in_cn and t_feat_in_ci
-        t_feat_in_ci_hom = T_ca_to_ci @ t_feat_in_ca_hom
-        t_feat_in_cn_hom = T_ca_to_cn @ t_feat_in_ca_hom
-
-        t_feat_in_ci = t_feat_in_ci_hom[:3]
-        t_feat_in_cn = t_feat_in_cn_hom[:3]
-
-        # Compute b_feat_cn_estimated
-        K = self.cam.Kr if right else self.cam.Kl
-        b_feat_in_cn_estimated = K @ t_feat_in_cn.reshape(3,1)
-
-        del_pn_del_b     = self.del_p_del_b(b=b_feat_in_cn_estimated)
-        del_b_del_tcn    = self.del_b_del_tcn(right=right)
-        del_tcn_del_xi   = self.del_tcn_del_xi(T_ci_cn=T_ci_to_cn, t_feat_ci=t_feat_in_ci)  
-
-        # Finally, we are ready to compute the Jacobian
-        del_pn_del_xi    = del_pn_del_b @ del_b_del_tcn @ del_tcn_del_xi
-        return del_pn_del_xi
-
 
     def del_pn_del_alpha(self, pa_hom:np.array, alpha:float, poses:list, anchor_idx:int, projection_idx:int, right=False):
         
@@ -531,28 +429,4 @@ class Optimizer():
             0.0, 1.0/vec[2], -(vec[1]/(vec[2]*vec[2])),
             0.0,      0.0,                 0.0
         ]).reshape(3,3)
-        return result
-    
-    def del_p_del_b(self, b:np.array):
-        b = b.reshape(3)
-        result = np.array([
-            1.0/b[2], 0.0, -(b[0]/(b[2]*b[2])),
-            0.0, 1.0/b[2], -(b[1]/(b[2]*b[2])),
-            0.0,      0.0,                 0.0
-        ]).reshape(3,3)
-        return result
-    
-    def del_b_del_tcn(self, right=False):
-        result = self.cam.Kr if right else self.cam.Kl
-        return result
-    
-    def del_tcn_del_xi(self, T_ci_cn: np.array, t_feat_ci:np.array):
-        # Fill the Jacobian matrix
-        R_ci_cn = T_ci_cn[:3, :3].reshape(3,3)
-        t_feat_ci = t_feat_ci.reshape(3,1)
-
-        result = np.zeros((3,6))
-        result[:3, :3] = - R_ci_cn @ self.LU.skew(t_feat_ci)
-        result[:3, 3:] = R_ci_cn
-
         return result

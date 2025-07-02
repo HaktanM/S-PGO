@@ -16,6 +16,12 @@ pyenv local 3.10.12       # Or `pyenv global 3.10.12` to make it default everywh
 # Create virtual environment
 python -m venv env
 source env/bin/activate
+
+# Make sure pip, setuptools and wheel are up to date.
+pip install --upgrade pip setuptools wheel
+
+# Install requirements
+pip install --no-build-isolation --no-binary=PyYAML PyYAML
 pip install -r requirements.txt
 ```
 

@@ -7,9 +7,22 @@ This repository implements stereo pose graph optimization on the GPU. In the ani
 
 Detailed documentation and implementation manual will be available after the publication of the related paper. 
 
+## Create the virtual environment
+```bash
+cd S-PGO
+pyenv install 3.10.12     # Skip if already installed
+pyenv local 3.10.12       # Or `pyenv global 3.10.12` to make it default everywhere
+
+# Create virtual environment
+python -m venv env
+source env/bin/activate
+pip install -r requirements.txt
+```
+
 ## Build the Code
 ```bash
-cd S-DPVO
+cd S-PGO
+source env/bin/activate
 mkdir build && cd build 
 cmake ..
 cmake --build . -- -j$(nproc)

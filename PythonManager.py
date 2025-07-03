@@ -3,8 +3,9 @@ from PythonUtils.Optimizer import Optimizer
 from PythonUtils.SceneRenderer import Renderer
 from PythonUtils.visualization_utils import visualize_depth_estimation
 import numpy as np
+import time
 
-from Optimizer import map_value_to_index
+from PythonUtils.Optimizer import map_value_to_index
 import threading
 
 class Manager():
@@ -17,11 +18,11 @@ class Manager():
         self.m = 30 * self.n
 
         # Initialize the simulator
-        self.simulator = Simulator(n=self.n+1, m=self.m)
+        self.simulator = Simulator(n=self.n, m=self.m)
         
         # Initialize the optimizer
         self.optimizer = Optimizer(n=self.n, m=self.m)
-        self.optimizer.initialize_estimated_incremental_poses(actual_incremental_poses=self.simulator.incremental_poses)
+        self.optimizer.initialize_estimated_poses(actual_poses=self.simulator.poses)
 
         # Finally, initialize the visualizer
         self.initialize_the_visualizer()
@@ -39,15 +40,15 @@ class Manager():
             self.visualizer.landmarks.append(point)
 
         # Add estimated poses as es well
-        estimated_poses = self.optimizer.get_estimated_global_poses(T_curr_global=self.simulator.poses[0])
+        estimated_poses = self.optimizer.get_estimated_global_poses(T_c0_g=self.simulator.poses[0])
         for estimated_pose in estimated_poses:
             self.visualizer.estimated_cam_frames.append(estimated_pose)
 
     def compute_estimation_errors(self):
         errors = []
         for idx in range(self.n):
-            actual_T = self.simulator.incremental_poses[idx]
-            estim_T  = self.optimizer.estimated_incremental_poses[idx]
+            actual_T = self.simulator.poses[idx]
+            estim_T  = self.simulator.poses[0] @ self.optimizer.estimated_poses[idx]
 
             error_T = np.linalg.inv(actual_T) @ estim_T
             xi = self.optimizer.LU.Log_SE3(error_T)
@@ -69,13 +70,50 @@ class Manager():
             estimates.append(estimated_depth)
             errors.append(abs(estimated_depth - actual_depth))
 
+        visualize_depth_estimation(actual_depths=actuals, estimated_depths=estimates)
+
         # Print total error
         total_error = np.sum(errors)
         print("Total depth estimation error:", total_error)
 
+    def pose_only_optimization_loop(self):
+        while True:
+            self.optimizer.step_pose_only(observations=self.simulator.observations, actual_depths=self.simulator.actual_depths)
+            errors = self.compute_estimation_errors()
+            print(np.array(errors))
+            time.sleep(1.0)
+
+            # Update the visualization as well
+            estimated_poses = self.optimizer.get_estimated_global_poses(T_c0_g=self.simulator.poses[0])
+            for idx in range(len(self.visualizer.estimated_cam_frames)):
+                self.visualizer.estimated_cam_frames[idx] = estimated_poses[idx]
+
+
+    def optimization_loop(self):
+        while True:
+            self.optimizer.step(observations=self.simulator.observations)
+            errors = self.compute_estimation_errors()
+            print(np.array(errors))
+            time.sleep(1.0)
+
+            # Update the visualization as well
+            estimated_poses = self.optimizer.get_estimated_global_poses(T_c0_g=self.simulator.poses[0])
+            for idx in range(len(self.visualizer.estimated_cam_frames)):
+                self.visualizer.estimated_cam_frames[idx] = estimated_poses[idx]
+
+            self.compute_depth_error()
    
 if __name__ == "__main__":
     manager = Manager()
+
+    # Create and start the background thread
+    worker = threading.Thread(
+        target=manager.pose_only_optimization_loop,
+        daemon=True            # ensures the thread won’t block process exit
+    )
+    worker.start()
+
     manager.visualizer.start_rendering()
 
+    worker.join()
 

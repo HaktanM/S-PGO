@@ -47,12 +47,9 @@ def visualize_jacobian_and_residual_to_cv(J, residual):
 
     img_bgr = cv2.cvtColor(img, cv2.COLOR_RGBA2BGR)
     cv2.imshow("Window", img_bgr)
-    cv2.waitKey()
-
+    cv2.waitKey(1)
     plt.close(fig)
-
     return img_bgr
-
 
 
 def visualize_jacobian(J):
@@ -89,7 +86,7 @@ def visualize_jacobian(J):
     cv2.waitKey(1)
 
 
-def visualize_hessian_and_g(H, g):
+def visualize_hessian_and_g(H, g, window_name="Hessian"):
     """
     Visualize Jacobian magnitude and residual vector on the same figure and return as an OpenCV BGR image.
 
@@ -131,7 +128,7 @@ def visualize_hessian_and_g(H, g):
     img = np.frombuffer(canvas.buffer_rgba(), dtype=np.uint8).reshape((height, width, 4))
 
     img_bgr = cv2.cvtColor(img, cv2.COLOR_RGBA2BGR)
-    cv2.imshow("Hessian", img_bgr)
+    cv2.imshow(window_name, img_bgr)
     cv2.waitKey()
 
     plt.close(fig)

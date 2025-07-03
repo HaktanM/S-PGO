@@ -11,8 +11,8 @@ cdef extern from "Solver.hpp":
         void writeObservations(int anchor_frame_ID, int target_frame_ID, int global_feat_ID, float *left_obs, float *right_obs)
         void step(int iterations)
         
-        void getIncrementalPose(int keyFrameID, float *T_curr_to_next)
-        void writeIncrementalPose(int keyFrameID, float *T_curr_to_next)
+        void getPose(int keyFrameID, float *T_curr_to_next)
+        void writePose(int keyFrameID, float *T_curr_to_next)
         void getObservation(int frame_ID, int global_feat_ID, float *left_obs, float *right_obs)
         void getCalibration(float *intrinsics, float *T_r_to_l)
         void loadInverseDepths(float *inverse_depths)

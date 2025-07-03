@@ -17,7 +17,7 @@
 
 void updateState(
     torch::Tensor observations,
-    torch::Tensor incremental_poses,
+    torch::Tensor poses,
     torch::Tensor inverse_depths,
     const torch::Tensor intrinsics,
     const torch::Tensor T_r_to_l,

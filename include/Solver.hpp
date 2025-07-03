@@ -34,11 +34,11 @@ public:
         _observations = torch::zeros({N+1, N*M, 2, 3}, _options_float);
         
         // Incremental Pose ID and 4x4 rigid transformations
-        _incremental_poses = torch::zeros({N, 4, 4}, _options_float);
+        _poses = torch::zeros({N, 4, 4}, _options_float);
 
         // Fill each [i] slice with identity matrix
         for (int i = 0; i < N; ++i) {
-            _incremental_poses[i] = torch::eye(4, _options_float);
+            _poses[i] = torch::eye(4, _options_float);
         }
 
         // Frame ID, Local Feature ID
@@ -50,8 +50,6 @@ public:
         _target_frame_id   = torch::zeros({_max_meas_size}, _options_int);
         _feat_glob_id      = torch::zeros({_max_meas_size}, _options_int);
 
-        
-
         // intrinsics and extrinsics will be stored in torch arrays
         _intrinsics = torch::zeros({2,4}, _options_float);
         _T_r_to_l = torch::zeros({4,4}, _options_float);
@@ -61,14 +59,10 @@ public:
     void loadCalibration(float *intrinsics, float *T_r_to_l);
     void writeObservations(int anchor_frame_ID, int target_frame_ID, int global_feat_ID, float *left_obs, float *right_obs);
 
-    void getIncrementalPose(int keyFrameID, float *T_curr_to_next);
-    void writeIncrementalPose(int keyFrameID, float *T_curr_to_next);
+    void getPose(int keyFrameID, float *T_curr_to_next);
+    void writePose(int keyFrameID, float *T_curr_to_next);
     void getObservation(int frame_ID, int global_feat_ID, float *left_obs, float *right_obs);
     void getCalibration(float *intrinsics, float *T_r_to_l);
-    void getJacobiansAndResidual(float *J_T, float *J_alpha, float *r);
-    void get_H_and_g_for_T(float *H_TT, float *g_T);
-    void get_H_and_g_for_alpha(float *H_aa, float *g_alpha);
-
 
     void loadInverseDepths(float *inverse_depths);
     void getInverseDepths(float *inverse_depths);
@@ -76,7 +70,7 @@ public:
     // The order of decleration below is important !!! 
     long int _max_meas_size;
     int _number_of_keyframes, _number_of_observations_per_frame;
-    torch::Tensor _observations, _incremental_poses, _inverse_depths, _anchor_frame_id, _target_frame_id, _feat_glob_id;
+    torch::Tensor _observations, _poses, _inverse_depths, _anchor_frame_id, _target_frame_id, _feat_glob_id;
     int _counter{0};
     float _step_size{1.0};
 

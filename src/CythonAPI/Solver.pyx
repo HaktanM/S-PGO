@@ -38,23 +38,23 @@ cdef class CudaSolver:
         self.thisptr.writeObservations(anchor_frame_ID, target_frame_ID, global_feat_ID, &left_obs[0], &right_obs[0])
 
 
-    def getIncrementalPose(self, int keyFrameID):
+    def getPose(self, int keyFrameID):
         # Create NumPy array to hold 16 floats (4x4)
-        T_curr_to_next = np.empty(16, dtype=np.float32)
+        T_cl_to_g = np.empty(16, dtype=np.float32)
 
         # Get memoryview
-        cdef float[::1] T_view = T_curr_to_next
+        cdef float[::1] T_view = T_cl_to_g
 
         # Pass pointer to C++
-        self.thisptr.getIncrementalPose(keyFrameID, &T_view[0])
+        self.thisptr.getPose(keyFrameID, &T_view[0])
 
         # Reshape into (4, 4)
-        return T_curr_to_next.reshape((4, 4))
+        return T_cl_to_g.reshape((4, 4))
 
-    def writeIncrementalPose(self, int keyFrameID, float[:] T_curr_to_next_py):
+    def writePose(self, int keyFrameID, float[:] T_cl_to_g_py):
         # Convert python objects to C objects
-        cdef float[:] T_curr_to_next  = T_curr_to_next_py
-        self.thisptr.writeIncrementalPose(keyFrameID, &T_curr_to_next[0])
+        cdef float[:] T_cl_to_g_cpp  = T_cl_to_g_py
+        self.thisptr.writePose(keyFrameID, &T_cl_to_g_cpp[0])
 
     def getObservation(self, int keyFrameID,  int global_feat_ID):
         # Create NumPy array to hold 16 floats (4x4)

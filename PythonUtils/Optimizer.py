@@ -37,7 +37,7 @@ class Optimizer():
         # Number of incremental poses to be estimated
         self.number_of_keyframes = n
 
-        # Number of landmarks extracted from a single keyframe
+        # Number of landmarks
         self.number_of_landmarks = m
 
         # Initialize the inverse depths
@@ -46,16 +46,13 @@ class Optimizer():
         for idx in range(self.number_of_landmarks):
             random_initial_depth = np.random.uniform(self.min_depth, self.max_depth)
             self.estimated_inverse_depths.append( 1 / random_initial_depth )
-        
 
         # Lie Algebra Utils
         self.LU = LieUtils()
 
-
         # Optimization parameters
         self.step_size  = 1.0
         self.prev_norm  = 1e10
-
     
     def initialize_estimated_poses(self, actual_poses):
         """
@@ -72,6 +69,16 @@ class Optimizer():
             T_c_g_noisy = T_c_g @ T_noise
 
             # self.estimated_poses.append(T_c_g_noisy)
+            self.estimated_poses.append(T_c_g_noisy)
+
+    def initialize_estimated_poses_with_identity(self):
+        """
+        Initialize the estimated poses around the actual incremental poses
+        """
+        # Initialize the incremental poses 
+        self.estimated_poses = []
+
+        for idx in range(self.number_of_keyframes):
             self.estimated_poses.append(np.eye(4))
 
     def initalize_depth_with_disparity(self, observations:dict):
@@ -363,7 +370,7 @@ class Optimizer():
 
         # Step size is also an important consept
         delta_pose  = self.step_size * delta_pose
-        delta_alpha = 0.2 * self.step_size * delta_alpha
+        delta_alpha = self.step_size * delta_alpha
 
         self.update_estimated_poses(delta_state=delta_pose)
         self.update_depths(delta_alpha=delta_alpha)

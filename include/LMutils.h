@@ -11,17 +11,12 @@
 struct LMvariables{
 public:
 
-    float *_incremental_poses  = NULL;
     float *_global_left_poses  = NULL;
-    float *_global_right_poses = NULL;
 
-    float *d_J_T            = NULL;
-    float *d_r              = NULL;
-
-    float *d_A              = NULL;
+    float *d_H_T            = NULL;
     float *d_g_T            = NULL;
     
-    float *d_C              = NULL;
+    float *d_H_a            = NULL;
     float *d_g_a            = NULL;
 
     float *d_B              = NULL;
@@ -63,14 +58,11 @@ public:
     void resetMiddleVariables();
     void freeAll();
 
-    
-    void J_T_to_txt();
-    void r_to_txt();
 
-    void C_to_txt();
+    void H_a_to_txt();
     void g_a_to_txt();
     
-    void A_to_txt();
+    void H_T_to_txt();
     void g_T_to_txt();
 
     void B_to_txt();

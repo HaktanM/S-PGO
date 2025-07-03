@@ -4,14 +4,14 @@
 
 void Solver::step(int iterations){
     torch::TensorOptions options = torch::TensorOptions().dtype(torch::kFloat).device(torch::kCUDA);
-    int num_of_poses        = _incremental_poses.size(0);
+    int num_of_poses        = _poses.size(0);
     int num_of_landmarks    = _inverse_depths.size(0);
     int measurement_count   = _counter;
 
     // Allocate memory on device to store the Jacobians and residual
     updateState(
         _observations,
-        _incremental_poses,
+        _poses,
         _inverse_depths,
         _intrinsics,
         _T_r_to_l,
@@ -56,31 +56,31 @@ void Solver::writeObservations(int anchor_frame_ID, int target_frame_ID, int glo
 }
 
 
-void Solver::getIncrementalPose(int keyFrameID, float *T_curr_to_next) {
-    assert(keyFrameID >= 0 && keyFrameID < _incremental_poses.size(0));
+void Solver::getPose(int keyFrameID, float *T_cl_to_g) {
+    assert(keyFrameID >= 0 && keyFrameID < _poses.size(0));
 
     // Extract pose from CUDA tensor, copy to CPU
-    torch::Tensor pose_cpu = _incremental_poses[keyFrameID].cpu().contiguous();
+    torch::Tensor pose_cpu = _poses[keyFrameID].cpu().contiguous();
 
     // Copy the pose
-    std::memcpy(T_curr_to_next, pose_cpu.data_ptr<float>(), sizeof(float) * 16);
+    std::memcpy(T_cl_to_g, pose_cpu.data_ptr<float>(), sizeof(float) * 16);
 }
 
-void Solver::writeIncrementalPose(int keyFrameID, float *T_curr_to_next){
-    _incremental_poses.index_put_({keyFrameID, 0, 0}, T_curr_to_next[0]);
-    _incremental_poses.index_put_({keyFrameID, 0, 1}, T_curr_to_next[1]);
-    _incremental_poses.index_put_({keyFrameID, 0, 2}, T_curr_to_next[2]);
-    _incremental_poses.index_put_({keyFrameID, 0, 3}, T_curr_to_next[3]);
+void Solver::writePose(int keyFrameID, float *T_cl_to_g){
+    _poses.index_put_({keyFrameID, 0, 0}, T_cl_to_g[0]);
+    _poses.index_put_({keyFrameID, 0, 1}, T_cl_to_g[1]);
+    _poses.index_put_({keyFrameID, 0, 2}, T_cl_to_g[2]);
+    _poses.index_put_({keyFrameID, 0, 3}, T_cl_to_g[3]);
 
-    _incremental_poses.index_put_({keyFrameID, 1, 0}, T_curr_to_next[4]);
-    _incremental_poses.index_put_({keyFrameID, 1, 1}, T_curr_to_next[5]);
-    _incremental_poses.index_put_({keyFrameID, 1, 2}, T_curr_to_next[6]);
-    _incremental_poses.index_put_({keyFrameID, 1, 3}, T_curr_to_next[7]);
+    _poses.index_put_({keyFrameID, 1, 0}, T_cl_to_g[4]);
+    _poses.index_put_({keyFrameID, 1, 1}, T_cl_to_g[5]);
+    _poses.index_put_({keyFrameID, 1, 2}, T_cl_to_g[6]);
+    _poses.index_put_({keyFrameID, 1, 3}, T_cl_to_g[7]);
 
-    _incremental_poses.index_put_({keyFrameID, 2, 0}, T_curr_to_next[8]);
-    _incremental_poses.index_put_({keyFrameID, 2, 1}, T_curr_to_next[9]);
-    _incremental_poses.index_put_({keyFrameID, 2, 2}, T_curr_to_next[10]);
-    _incremental_poses.index_put_({keyFrameID, 2, 3}, T_curr_to_next[11]);
+    _poses.index_put_({keyFrameID, 2, 0}, T_cl_to_g[8]);
+    _poses.index_put_({keyFrameID, 2, 1}, T_cl_to_g[9]);
+    _poses.index_put_({keyFrameID, 2, 2}, T_cl_to_g[10]);
+    _poses.index_put_({keyFrameID, 2, 3}, T_cl_to_g[11]);
 }
 
 void Solver::getObservation(int frame_ID, int global_feat_ID, float *left_obs, float *right_obs){

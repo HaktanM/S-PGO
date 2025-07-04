@@ -47,7 +47,7 @@ def visualize_jacobian_and_residual_to_cv(J, residual):
 
     img_bgr = cv2.cvtColor(img, cv2.COLOR_RGBA2BGR)
     cv2.imshow("Window", img_bgr)
-    cv2.waitKey(1)
+    cv2.waitKey(10)
     plt.close(fig)
     return img_bgr
 
@@ -83,7 +83,7 @@ def visualize_jacobian(J):
     # Convert to BGR for OpenCV
     img_bgr = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
     cv2.imshow("Window", img_bgr)
-    cv2.waitKey(1)
+    cv2.waitKey(10)
 
 
 def visualize_hessian_and_g(H, g, window_name="Hessian"):
@@ -129,7 +129,7 @@ def visualize_hessian_and_g(H, g, window_name="Hessian"):
 
     img_bgr = cv2.cvtColor(img, cv2.COLOR_RGBA2BGR)
     cv2.imshow(window_name, img_bgr)
-    cv2.waitKey()
+    cv2.waitKey(10)
 
     plt.close(fig)
 

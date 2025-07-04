@@ -4,18 +4,28 @@
 
 
 inline __device__ void loadPose(
-    const torch::PackedTensorAccessor32<float, 4, torch::RestrictPtrTraits>& poses,
+    const torch::PackedTensorAccessor32<float, 3, torch::RestrictPtrTraits>& poses,
     int pose_idx,
-    int left_right,
     float* T_out
 ) {
     #pragma unroll
     for (int i = 0; i < 4; ++i) {
         #pragma unroll
         for (int j = 0; j < 4; ++j) {
-            T_out[4 * i + j] = poses[pose_idx][left_right][i][j];
+            T_out[4 * i + j] = poses[pose_idx][i][j];
         }
     }
+}
+
+
+inline __device__ void applyRigidTransformation(
+    float* T_a_to_b,
+    float* t_in_a,
+    float* t_in_b
+) {
+    t_in_b[0] = T_a_to_b[0] * t_in_a[0] + T_a_to_b[1] * t_in_a[1] + T_a_to_b[2]  * t_in_a[2] + T_a_to_b[3];
+    t_in_b[1] = T_a_to_b[4] * t_in_a[0] + T_a_to_b[5] * t_in_a[1] + T_a_to_b[6]  * t_in_a[2] + T_a_to_b[7];
+    t_in_b[2] = T_a_to_b[8] * t_in_a[0] + T_a_to_b[9] * t_in_a[1] + T_a_to_b[10] * t_in_a[2] + T_a_to_b[11];
 }
 
 
@@ -119,6 +129,32 @@ __global__ void LevenbergMarquardt(
     int anchor_idx = anchor_frame_ids[measurement_idx];
     int target_idx = target_frame_ids[measurement_idx];
     int feat_idx   = feat_glob_ids[measurement_idx];
+
+    // Get the observation in the anchor
+    float p_in_anchor[3] = { observations[anchor_idx][feat_idx][0][0], observations[anchor_idx][feat_idx][0][1], observations[anchor_idx][feat_idx][0][2] };
+
+    // Get the estimation parameters
+    float T_ca_to_g[16];  loadPose(poses, anchor_idx, T_ca_to_g);
+    float T_cnl_to_g[16]; loadPose(poses, target_idx, T_cnl_to_g);
+    float alpha = inverse_depths[feat_idx];
+
+    // We will also need T_g_to_cnl
+    float T_g_to_cnl[16]; InvertPose4x4(T_cnl_to_g, T_g_to_cnl);
+
+    // Compute position of feature in anchor camera frame
+    float t_feat_in_ca[3]; MatrixMultiplication(Kl_inv, p_in_anchor, t_feat_in_ca, 3, 3, 1);
+    t_feat_in_ca[0] = t_feat_in_ca[0] / alpha;
+    t_feat_in_ca[1] = t_feat_in_ca[1] / alpha;
+    t_feat_in_ca[2] = t_feat_in_ca[2] / alpha;
+
+    // Compute T_ca_to_cnl
+    float T_ca_to_cnl[16];
+    MatrixMultiplication(T_g_to_cnl, T_ca_to_g, T_ca_to_cnl, 4, 4, 4);
+
+    // Compute position of the feature in target left camera frame
+    float t_feat_in_cnl[3]; applyRigidTransformation(T_ca_to_cnl, t_feat_in_ca, t_feat_in_cnl);
+
+    
 }
 
 

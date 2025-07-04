@@ -12,7 +12,7 @@ class Manager():
     def __init__(self):
 
         # Number of keyframes
-        self.n = 10
+        self.n = 1
 
         # Number of landmarks 
         self.m = 30 * self.n
@@ -22,7 +22,7 @@ class Manager():
         
         # Initialize the optimizer
         self.optimizer = Optimizer(n=self.n, m=self.m)
-        self.optimizer.initialize_estimated_poses(actual_poses=self.simulator.poses)
+        self.optimizer.initialize_estimated_poses_with_identity()
 
         # Finally, initialize the visualizer
         self.initialize_the_visualizer()
@@ -49,7 +49,6 @@ class Manager():
         for idx in range(self.n):
             actual_T = self.simulator.poses[idx]
             estim_T  = self.simulator.poses[0] @ self.optimizer.estimated_poses[idx]
-
             error_T = np.linalg.inv(actual_T) @ estim_T
             xi = self.optimizer.LU.Log_SE3(error_T)
             errors.append(np.linalg.norm(xi))

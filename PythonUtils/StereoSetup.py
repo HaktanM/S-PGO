@@ -1,4 +1,5 @@
 import numpy as np
+from scipy.spatial.transform import Rotation as ori
 
 class StereoSetup():
     """
@@ -14,8 +15,8 @@ class StereoSetup():
                             [0.0, 0.0, 1.0]]).reshape(3,3)
         
         # self.Kr = self.Kl.copy()
-        self.Kr = np.array([[300.0, 0.0, 320.0],
-                            [0.0, 300.0, 256.0],
+        self.Kr = np.array([[200.0, 0.0, 180.0],
+                            [0.0, 200.0, 160.0],
                             [0.0, 0.0, 1.0]]).reshape(3,3)
         
         self.Kl_inv = np.linalg.inv(self.Kl)
@@ -23,12 +24,15 @@ class StereoSetup():
         
         # Pose of left camera in right camera frame
         # self.T_l_r = pp.randn_SE3(1).matrix().cpu().numpy().reshape(4,4)
+
         self.T_l_r = np.array([
             1.0, 0.0, 0.0, 1.0,
             0.0, 1.0, 0.0, 0.5,
             0.0, 0.0, 1.0, 0.0,
             0.0, 0.0, 0.0, 1.0
         ]).reshape(4,4)
+        R = ori.from_euler("xyz", [10.0, 20.0, 15.0], degrees=True).as_matrix()
+        self.T_l_r[:3, :3] = R
 
         self.T_r_l = np.linalg.inv(self.T_l_r) 
     

@@ -282,25 +282,37 @@ __global__ void LevenbergMarquardt(
 
     if(cam_idx == 0) // The observation belongs to left camera
     {
-
-        // Compute the residual first
-        float pnl_estimated[3];
-        projection(Kl, t_feat_in_cnl, pnl_estimated);
-
-        float residual[2];
-        residual[0] = observations[target_idx][feat_idx][cam_idx][0] - pnl_estimated[0];
-        residual[1] = observations[target_idx][feat_idx][cam_idx][1] - pnl_estimated[1];
-        
-        // Compute del_pnl_del_tnl in the first place
-        float del_pnl_del_tnl[6]; jacobianOfProjection(Kl, t_feat_in_cnl, del_pnl_del_tnl);
-        
         if(target_idx>anchor_idx){  // Pose is updated only if the measurement belongs to a new frame
+            // Compute the residual first
+            float pnl_estimated[3];
+            projection(Kl, t_feat_in_cnl, pnl_estimated);
+
+            float residual[2];
+            residual[0] = observations[target_idx][feat_idx][cam_idx][0] - pnl_estimated[0];
+            residual[1] = observations[target_idx][feat_idx][cam_idx][1] - pnl_estimated[1];
+
+            // Compute cauchy weight
+            float res_mag_square = residual[0]*residual[0] + residual[1]*residual[1];
+            float cauchy_weight = sqrtf( 1.0f / ( 1.0 + (res_mag_square / lm_var->_cauchy_constant_square) ));
+
+            // Apply cauchy weight
+            for(int row_idx=0; row_idx<2; row_idx++){
+                residual[row_idx] *= cauchy_weight;
+            }
+            
+            // Compute del_pnl_del_tnl in the first place
+            float del_pnl_del_tnl[6]; jacobianOfProjection(Kl, t_feat_in_cnl, del_pnl_del_tnl);
             // Compute del_tnl_del_xn
             float del_tnl_del_xn[18]; compute_del_tnl_del_xn(t_feat_in_cnl, del_tnl_del_xn);
-
             // Compute del_pnl_del_xn
-            float del_pnl_del_xn[12];
-            MatrixMultiplication(del_pnl_del_tnl, del_tnl_del_xn, del_pnl_del_xn, 2, 3, 6);
+            float del_pnl_del_xn[12]; MatrixMultiplication(del_pnl_del_tnl, del_tnl_del_xn, del_pnl_del_xn, 2, 3, 6);
+
+            // Apply cauchy weight
+            for(int row_idx=0; row_idx<2; row_idx++){
+                for(int col_idx=0; col_idx<6; col_idx++){
+                    del_pnl_del_xn[row_idx*6 + col_idx] *= cauchy_weight;
+                }
+            }
 
             // Compute H_TT and g_TT
             float del_pnl_del_xn_transpose[12]; getTranspose(del_pnl_del_xn, del_pnl_del_xn_transpose, 2, 6);
@@ -315,17 +327,34 @@ __global__ void LevenbergMarquardt(
                                 + 6 * target_idx 
                                 + row_idx * lm_var->_number_of_pose_params 
                                 + col_idx;
-
                                 atomicAdd(&(lm_var->d_H_T[H_T_idx]), h_T[h_T_idx]);
                 }
-
                 // Fill g_T
                 int g_T_idx = 6 * target_idx + row_idx;
                 atomicAdd(&(lm_var->d_g_T[g_T_idx]), g_T[row_idx]);
             }
+
+
+
+            // Compute del_tnl_del_alpha
+            float R_ca_cnl[9];          getRotFromT(T_ca_to_cnl, R_ca_cnl);
+            float del_tnl_del_alpha[3]; MatrixMultiplication(R_ca_cnl, t_feat_in_ca, del_tnl_del_alpha, 3, 3, 1);
+            for(int row_idx=0; row_idx<3; row_idx++){
+                del_tnl_del_alpha[row_idx] = - del_tnl_del_alpha[row_idx] / alpha;
+            }
+
+            // Apply cauchy weight
+            for(int row_idx=0; row_idx<3; row_idx++){
+                del_tnl_del_alpha[row_idx] *= cauchy_weight;
+            }
+
+            // Compute del_pnr_del_alpha
+            float del_pnl_del_alpha[2]; MatrixMultiplication(del_pnl_del_tnl, del_tnl_del_alpha, del_pnl_del_alpha, 2, 3, 1);
+
+            // Compute H_aa and g_aa
+            atomicAdd(&(lm_var->d_H_a[feat_idx]), del_pnl_del_alpha[0]*del_pnl_del_alpha[0] + del_pnl_del_alpha[1]*del_pnl_del_alpha[1]); 
+            atomicAdd(&(lm_var->d_g_a[feat_idx]), del_pnl_del_alpha[0]*residual[0]          + del_pnl_del_alpha[1]*residual[1]); 
         }
-        
-        
     }
     else // The observation belongs to left camera
     {
@@ -340,6 +369,15 @@ __global__ void LevenbergMarquardt(
         residual[0] = observations[target_idx][feat_idx][cam_idx][0] - pnr_estimated[0];
         residual[1] = observations[target_idx][feat_idx][cam_idx][1] - pnr_estimated[1];
 
+        // Compute cauchy weight
+        float res_mag_square = residual[0]*residual[0] + residual[1]*residual[1];
+        float cauchy_weight = sqrtf( 1.0f / ( 1.0 + (res_mag_square / lm_var->_cauchy_constant_square) ));
+
+        // Apply cauchy weight
+        for(int row_idx=0; row_idx<2; row_idx++){
+            residual[row_idx] *= cauchy_weight;
+        }
+        
         // Compute del_pnr_del_tnr in the first place
         float del_pnr_del_tnr[6]; jacobianOfProjection(Kr, t_feat_in_cnr, del_pnr_del_tnr);
 
@@ -353,25 +391,18 @@ __global__ void LevenbergMarquardt(
             float del_pnr_del_xn[12];
             MatrixMultiplication(del_pnr_del_tnr, del_tnr_del_xn, del_pnr_del_xn, 2, 3, 6);
 
+            // Apply cauchy weight
+            for(int row_idx=0; row_idx<2; row_idx++){
+                for(int col_idx=0; col_idx<6; col_idx++){
+                    del_pnr_del_xn[row_idx*6 + col_idx] *= cauchy_weight;
+                }
+            }
+
             // Compute H_TT and g_TT
             float del_pnr_del_xn_transpose[12]; getTranspose(del_pnr_del_xn, del_pnr_del_xn_transpose, 2, 6);
             float h_T[36]; MatrixMultiplication(del_pnr_del_xn_transpose, del_pnr_del_xn, h_T, 6, 2, 6);
             float g_T[6];  MatrixMultiplication(del_pnr_del_xn_transpose, residual, g_T, 6, 2, 1);
 
-            if(feat_idx==0 && target_idx==1){
-                printf("g_T : \n");
-                for(int row_idx = 0; row_idx<6; row_idx++){
-                    printf("%f, ", g_T[row_idx]);
-                }
-                printf("\n");
-                printf("\n");
-                
-                printf("residual : \n");
-                for(int row_idx = 0; row_idx<2; row_idx++){
-                    printf("%f, ", residual[row_idx]);
-                }
-                printf("\n");
-            } 
             
             for(int row_idx=0; row_idx<6; row_idx++){
                 // First fil the H_T
@@ -381,16 +412,35 @@ __global__ void LevenbergMarquardt(
                                 + 6 * target_idx 
                                 + row_idx * lm_var->_number_of_pose_params 
                                 + col_idx;
-
                     atomicAdd(&(lm_var->d_H_T[H_T_idx]), h_T[h_T_idx]);
                 }
-
                 // Fill g_T
                 int g_T_idx = 6 * target_idx + row_idx;
                 atomicAdd(&(lm_var->d_g_T[g_T_idx]), g_T[row_idx]);
-                printf("row_idx : %d, target_idx : %d, lm_var->d_g_T[g_T_idx] : %f\n", row_idx, target_idx, lm_var->d_g_T[g_T_idx]);
             }
         }
+
+
+        // Compute del_tnr_del_alpha
+        float T_ca_to_cnr[16];      MatrixMultiplication(T_l_to_r, T_ca_to_cnl, T_ca_to_cnr, 4, 4, 4);
+        float R_ca_cnr[9];          getRotFromT(T_ca_to_cnr, R_ca_cnr);
+        float del_tnr_del_alpha[3]; MatrixMultiplication(R_ca_cnr, t_feat_in_ca, del_tnr_del_alpha, 3, 3, 1);
+        
+        for(int row_idx=0; row_idx<3; row_idx++){
+            del_tnr_del_alpha[row_idx] = - del_tnr_del_alpha[row_idx] / alpha;
+        }
+
+        // Apply cauchy weight
+        for(int row_idx=0; row_idx<3; row_idx++){
+            del_tnr_del_alpha[row_idx] *= cauchy_weight;
+        }
+
+        // Compute del_pnr_del_alpha
+        float del_pnr_del_alpha[2]; MatrixMultiplication(del_pnr_del_tnr, del_tnr_del_alpha, del_pnr_del_alpha, 2, 3, 1);
+
+        // Compute H_aa and g_aa
+        atomicAdd(&(lm_var->d_H_a[feat_idx]), del_pnr_del_alpha[0]*del_pnr_del_alpha[0] + del_pnr_del_alpha[1]*del_pnr_del_alpha[1]); 
+        atomicAdd(&(lm_var->d_g_a[feat_idx]), del_pnr_del_alpha[0]*residual[0]          + del_pnr_del_alpha[1]*residual[1]); 
     }
 }
 
@@ -512,6 +562,9 @@ void updateState(
         // print the Hessian for varification
         h_lm_var.H_T_to_txt();
         h_lm_var.g_T_to_txt();
+
+        h_lm_var.H_a_to_txt();
+        h_lm_var.g_a_to_txt();
     }
 
     cudaDeviceSynchronize();

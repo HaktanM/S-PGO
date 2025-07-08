@@ -9,6 +9,14 @@ import numpy as np
 from PythonUtils.visualization_utils import *
 
 
+def compute_cauchy_weigth(res:np.array):
+    res = res.reshape(2)
+    res_mag = res[0]*res[0] + res[1]*res[1]
+
+    cauchy_weigth = np.sqrt( 1.0 / ( 1.0 + (res_mag / 9.0) ))
+
+    return cauchy_weigth
+
 def map_value_to_index(v, x, n):
     """
     Maps value `v` in range [0, x] to index in range [0, n-1].
@@ -185,7 +193,7 @@ class Optimizer():
                 else:
                     w = 1.0
 
-                w = 1.0 
+                w = compute_cauchy_weigth(residual[:2])
                 # Compute the Jacobian with respect to estimated pose
                 del_pnl_del_tnl = self.cam.Kl @ self.jacobian_of_projection(vec=t_feat_in_cnl)
                 del_tnl_del_xin = self.del_tnl_del_xin(t_feat_cnl=t_feat_in_cnl) 
@@ -206,6 +214,8 @@ class Optimizer():
                     # Finally, fill the B matrix
                     B[J_col_idx:J_col_idx+6,landmark_idx] += (w * w * del_meas_del_pose.T @ del_pnl_del_alpha[:2,:]).squeeze()
 
+                    
+
                 ####################### COMPUTE THE PROJECTION FOR THE RIGHT CAMERA NOW #######################
                 # Compute the residual
                 observation                 = observations[projection_idx][landmark_idx][True]
@@ -217,7 +227,7 @@ class Optimizer():
                     w = 0.0
                 else:
                     w = 1.0
-                w = 1.0
+                w = compute_cauchy_weigth(residual[:2])
                 # Compute the Jacobian with respect to estimated pose
                 del_pnr_del_tnr = self.cam.Kr @ self.jacobian_of_projection(vec=t_feat_in_cnr)
                 del_tnr_del_xin = self.cam.T_l_r[:3, :3] @ del_tnl_del_xin
@@ -230,9 +240,9 @@ class Optimizer():
                     H_TT[J_col_idx:J_col_idx+6, J_col_idx:J_col_idx+6] += w * w * del_meas_del_pose.T @ del_meas_del_pose
                     g_TT[J_col_idx:J_col_idx+6, 0] += w * w * del_meas_del_pose.T @ residual[:2].reshape(-1)
 
-                    if landmark_idx == 0 and projection_idx == 1:
-                        print(f"g_TT - py : \n{del_meas_del_pose.T @ residual[:2].reshape(-1)}")
-                        print(f"residual - py : \n{residual}")
+                    # if landmark_idx == 0 and projection_idx == 1:
+                    #     print(f"g_TT - py : \n{del_meas_del_pose.T @ residual[:2].reshape(-1)}")
+                    #     print(f"residual - py : \n{residual}")
 
                 # Compute the Jacobain with respect to estimated inverse depth
                 del_tnr_del_alpha = - T_ca_to_cnr[:3,:3] @ t_feat_in_ca / alpha

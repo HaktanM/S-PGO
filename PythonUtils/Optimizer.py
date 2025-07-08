@@ -185,6 +185,7 @@ class Optimizer():
                 else:
                     w = 1.0
 
+                w = 1.0 
                 # Compute the Jacobian with respect to estimated pose
                 del_pnl_del_tnl = self.cam.Kl @ self.jacobian_of_projection(vec=t_feat_in_cnl)
                 del_tnl_del_xin = self.del_tnl_del_xin(t_feat_cnl=t_feat_in_cnl) 
@@ -216,16 +217,22 @@ class Optimizer():
                     w = 0.0
                 else:
                     w = 1.0
-
+                w = 1.0
                 # Compute the Jacobian with respect to estimated pose
                 del_pnr_del_tnr = self.cam.Kr @ self.jacobian_of_projection(vec=t_feat_in_cnr)
                 del_tnr_del_xin = self.cam.T_l_r[:3, :3] @ del_tnl_del_xin
                 del_pnr_del_xin = del_pnr_del_tnr @ del_tnr_del_xin
 
                 del_meas_del_pose = del_pnr_del_xin[:2, :].reshape(2,6)
+                
+
                 if projection_idx>anchor_idx:
                     H_TT[J_col_idx:J_col_idx+6, J_col_idx:J_col_idx+6] += w * w * del_meas_del_pose.T @ del_meas_del_pose
                     g_TT[J_col_idx:J_col_idx+6, 0] += w * w * del_meas_del_pose.T @ residual[:2].reshape(-1)
+
+                    if landmark_idx == 0 and projection_idx == 1:
+                        print(f"g_TT - py : \n{del_meas_del_pose.T @ residual[:2].reshape(-1)}")
+                        print(f"residual - py : \n{residual}")
 
                 # Compute the Jacobain with respect to estimated inverse depth
                 del_tnr_del_alpha = - T_ca_to_cnr[:3,:3] @ t_feat_in_ca / alpha

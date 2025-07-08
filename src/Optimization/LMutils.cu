@@ -102,6 +102,12 @@ void LMvariables::allocateMemory(int num_of_poses, int num_of_landmarks, int mea
     if (err != cudaSuccess) {
         printf("cudaMalloc failed: %s\n", cudaGetErrorString(err));
     }
+
+    err = cudaMalloc((void**)&d_T_l_to_r, 16 * sizeof(float));
+    cudaMemset(d_T_l_to_r, 0,             16 * sizeof(float));
+    if (err != cudaSuccess) {
+        printf("cudaMalloc failed: %s\n", cudaGetErrorString(err));
+    }
       
 };
 
@@ -144,6 +150,7 @@ void LMvariables::freeAll(){
     cudaFree(d_delta_a);
 
     cudaFree(d_T_r_to_l);
+    cudaFree(d_T_l_to_r);
 
     _number_of_pose_params = 0;
     _number_of_landmarks   = 0;

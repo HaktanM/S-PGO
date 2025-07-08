@@ -32,6 +32,7 @@ public:
     float *d_delta_a        = NULL;
 
     float *d_T_r_to_l       = NULL;
+    float *d_T_l_to_r       = NULL;
 
     int _number_of_pose_params{0};
     int _number_of_landmarks{0};

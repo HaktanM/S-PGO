@@ -4,6 +4,7 @@ from PythonUtils.Optimizer import Optimizer
 from PythonUtils.SceneRenderer import Renderer
 from PythonUtils.LieUtils import LieUtils
 from PythonUtils.Optimizer import map_value_to_index
+from PythonUtils.visualization_utils import visualize_hessian_and_g
 
 import time
 import threading
@@ -14,10 +15,10 @@ class Manager():
     def __init__(self):
 
         # Number of keyframes
-        self.n = 5
+        self.n = 2
 
         # NUmber of landmarks per frame
-        self.m = 30
+        self.m = 2
 
         # Number of total landmarks 
         self.M = self.n * self.m
@@ -70,7 +71,7 @@ class Manager():
         for landmark_idx in range(self.M): 
             anchor_idx = map_value_to_index(v=landmark_idx, x=self.M, n=self.n)
             for projection_idx in range(anchor_idx, self.n+1):
-                if self.simulator.validty[projection_idx][landmark_idx][False] and self.simulator.validty[projection_idx][landmark_idx][True]:
+                if True: #self.simulator.validty[projection_idx][landmark_idx][False] and self.simulator.validty[projection_idx][landmark_idx][True]:
                     left_obs_py  = self.simulator.observations[projection_idx][landmark_idx][False].reshape(3).astype(np.float32)
                     right_obs_py = self.simulator.observations[projection_idx][landmark_idx][True].reshape(3).astype(np.float32)
                     self.solver.writeObservations(anchor_idx, projection_idx, landmark_idx, left_obs_py, right_obs_py)
@@ -120,8 +121,16 @@ class Manager():
 if __name__ == "__main__":
     manager = Manager()
 
-    manager.solver.step(1)
+    # Get the optimization parameters from Python
+    H_TT, g_TT, H_aa, g_aa, BB = manager.optimizer.getHessians(observations=manager.simulator.observations)
 
-    for idx in range(manager.n):
-        estimated_pose = manager.solver.getPose(idx)
-        print(estimated_pose)
+    # Get Hessian from CUDA
+    manager.solver.step(1)
+    H_T = np.loadtxt("H_T.txt", delimiter=",")
+    g_T = np.loadtxt("g_T.txt", delimiter=",")
+
+    # Compare two results
+    visualize_hessian_and_g(H_T, g_T)
+    visualize_hessian_and_g(H_TT, g_TT)
+
+    # print(0.01 * H_TT[6:, 6:])

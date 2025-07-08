@@ -129,7 +129,7 @@ def visualize_hessian_and_g(H, g, window_name="Hessian"):
 
     img_bgr = cv2.cvtColor(img, cv2.COLOR_RGBA2BGR)
     cv2.imshow(window_name, img_bgr)
-    cv2.waitKey(10)
+    cv2.waitKey()
 
     plt.close(fig)
 

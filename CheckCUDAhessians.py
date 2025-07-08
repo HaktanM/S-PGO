@@ -15,10 +15,10 @@ class Manager():
     def __init__(self):
 
         # Number of keyframes
-        self.n = 8
+        self.n = 5
 
         # NUmber of landmarks per frame
-        self.m = 25 
+        self.m = 20 
 
         # Number of total landmarks 
         self.M = self.n * self.m
@@ -132,7 +132,7 @@ if __name__ == "__main__":
     H_a = np.loadtxt("H_a.txt", delimiter=",")
     g_a = np.loadtxt("g_a.txt", delimiter=",")
 
-    print(H_TT[6:,6:])
+    B = np.loadtxt("B.txt", delimiter=",")
 
     # Compare two results
     visualize_hessian_and_g(H_T, g_T)
@@ -142,4 +142,5 @@ if __name__ == "__main__":
     visualize_hessian_and_g(np.diag(H_a.reshape(-1)), g_a)
     visualize_hessian_and_g(np.diag(H_aa.reshape(-1)), g_aa)
 
-    # print(0.01 * H_TT[6:, 6:])
+    visualize_hessian_and_g(B, g_T)
+    visualize_hessian_and_g(BB, g_TT)

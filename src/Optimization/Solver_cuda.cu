@@ -168,7 +168,6 @@ __global__ void LevenbergMarquardt(
     const torch::PackedTensorAccessor32<float,1,torch::RestrictPtrTraits> inverse_depths,
     const torch::PackedTensorAccessor32<float,2,torch::RestrictPtrTraits> intrinsics,
     const torch::PackedTensorAccessor32<float,2,torch::RestrictPtrTraits> T_l_to_r_torch,
-    const torch::PackedTensorAccessor32<float,2,torch::RestrictPtrTraits> T_r_to_l_torch,
     const torch::PackedTensorAccessor32<int,1,torch::RestrictPtrTraits> anchor_frame_ids,
     const torch::PackedTensorAccessor32<int,1,torch::RestrictPtrTraits> target_frame_ids,
     const torch::PackedTensorAccessor32<int,1,torch::RestrictPtrTraits> feat_glob_ids,
@@ -178,7 +177,6 @@ __global__ void LevenbergMarquardt(
     __shared__ float Kl_inv[9];
     __shared__ float Kr[9];
     __shared__ float T_l_to_r[16];
-    __shared__ float T_r_to_l[16];
     __shared__ int thread_max_limit[1];
 
     // First load the data which is commonly used by all threads to the shared memory
@@ -226,12 +224,6 @@ __global__ void LevenbergMarquardt(
         for(int row_idx=0; row_idx<4; row_idx++){
             for(int col_idx=0; col_idx<4; col_idx++){
                 T_l_to_r[row_idx*4 + col_idx] = T_l_to_r_torch[row_idx][col_idx];
-            }
-        }
-
-        for(int row_idx=0; row_idx<4; row_idx++){
-            for(int col_idx=0; col_idx<4; col_idx++){
-                T_r_to_l[row_idx*4 + col_idx] = T_r_to_l_torch[row_idx][col_idx];
             }
         }
 
@@ -354,6 +346,14 @@ __global__ void LevenbergMarquardt(
             // Compute H_aa and g_aa
             atomicAdd(&(lm_var->d_H_a[feat_idx]), del_pnl_del_alpha[0]*del_pnl_del_alpha[0] + del_pnl_del_alpha[1]*del_pnl_del_alpha[1]); 
             atomicAdd(&(lm_var->d_g_a[feat_idx]), del_pnl_del_alpha[0]*residual[0]          + del_pnl_del_alpha[1]*residual[1]); 
+
+            // Finally compute B
+            float B[6]; MatrixMultiplication(del_pnl_del_xn_transpose, del_pnl_del_alpha, B, 6, 2, 1);
+            for(int row_idx=0; row_idx<6; row_idx++){
+                int B_row_idx = 6 * target_idx + row_idx;
+                int B_idx     = B_row_idx * lm_var->_number_of_landmarks + feat_idx;
+                atomicAdd(&(lm_var->d_B[B_idx]), B[row_idx]); 
+            }
         }
     }
     else // The observation belongs to left camera
@@ -380,6 +380,28 @@ __global__ void LevenbergMarquardt(
         
         // Compute del_pnr_del_tnr in the first place
         float del_pnr_del_tnr[6]; jacobianOfProjection(Kr, t_feat_in_cnr, del_pnr_del_tnr);
+
+
+        // Compute del_tnr_del_alpha
+        float T_ca_to_cnr[16];      MatrixMultiplication(T_l_to_r, T_ca_to_cnl, T_ca_to_cnr, 4, 4, 4);
+        float R_ca_cnr[9];          getRotFromT(T_ca_to_cnr, R_ca_cnr);
+        float del_tnr_del_alpha[3]; MatrixMultiplication(R_ca_cnr, t_feat_in_ca, del_tnr_del_alpha, 3, 3, 1);
+        
+        for(int row_idx=0; row_idx<3; row_idx++){
+            del_tnr_del_alpha[row_idx] = - del_tnr_del_alpha[row_idx] / alpha;
+        }
+
+        // Apply cauchy weight
+        for(int row_idx=0; row_idx<3; row_idx++){
+            del_tnr_del_alpha[row_idx] *= cauchy_weight;
+        }
+
+        // Compute del_pnr_del_alpha
+        float del_pnr_del_alpha[2]; MatrixMultiplication(del_pnr_del_tnr, del_tnr_del_alpha, del_pnr_del_alpha, 2, 3, 1);
+
+        // Compute H_aa and g_aa
+        atomicAdd(&(lm_var->d_H_a[feat_idx]), del_pnr_del_alpha[0]*del_pnr_del_alpha[0] + del_pnr_del_alpha[1]*del_pnr_del_alpha[1]); 
+        atomicAdd(&(lm_var->d_g_a[feat_idx]), del_pnr_del_alpha[0]*residual[0]          + del_pnr_del_alpha[1]*residual[1]); 
 
         if(target_idx>anchor_idx){  // Pose is updated only if the measurement belongs to a new frame
             // Compute del_tnr_del_xn
@@ -418,29 +440,15 @@ __global__ void LevenbergMarquardt(
                 int g_T_idx = 6 * target_idx + row_idx;
                 atomicAdd(&(lm_var->d_g_T[g_T_idx]), g_T[row_idx]);
             }
+
+            // Finally compute B
+            float B[6]; MatrixMultiplication(del_pnr_del_xn_transpose, del_pnr_del_alpha, B, 6, 2, 1);
+            for(int row_idx=0; row_idx<6; row_idx++){
+                int B_row_idx = 6 * target_idx + row_idx;
+                int B_idx     = B_row_idx * lm_var->_number_of_landmarks + feat_idx;
+                atomicAdd(&(lm_var->d_B[B_idx]), B[row_idx]); 
+            }
         }
-
-
-        // Compute del_tnr_del_alpha
-        float T_ca_to_cnr[16];      MatrixMultiplication(T_l_to_r, T_ca_to_cnl, T_ca_to_cnr, 4, 4, 4);
-        float R_ca_cnr[9];          getRotFromT(T_ca_to_cnr, R_ca_cnr);
-        float del_tnr_del_alpha[3]; MatrixMultiplication(R_ca_cnr, t_feat_in_ca, del_tnr_del_alpha, 3, 3, 1);
-        
-        for(int row_idx=0; row_idx<3; row_idx++){
-            del_tnr_del_alpha[row_idx] = - del_tnr_del_alpha[row_idx] / alpha;
-        }
-
-        // Apply cauchy weight
-        for(int row_idx=0; row_idx<3; row_idx++){
-            del_tnr_del_alpha[row_idx] *= cauchy_weight;
-        }
-
-        // Compute del_pnr_del_alpha
-        float del_pnr_del_alpha[2]; MatrixMultiplication(del_pnr_del_tnr, del_tnr_del_alpha, del_pnr_del_alpha, 2, 3, 1);
-
-        // Compute H_aa and g_aa
-        atomicAdd(&(lm_var->d_H_a[feat_idx]), del_pnr_del_alpha[0]*del_pnr_del_alpha[0] + del_pnr_del_alpha[1]*del_pnr_del_alpha[1]); 
-        atomicAdd(&(lm_var->d_g_a[feat_idx]), del_pnr_del_alpha[0]*residual[0]          + del_pnr_del_alpha[1]*residual[1]); 
     }
 }
 
@@ -549,7 +557,6 @@ void updateState(
             inverse_depths.packed_accessor32<float,1,torch::RestrictPtrTraits>(),
             intrinsics.packed_accessor32<float,2,torch::RestrictPtrTraits>(),
             T_l_to_r.packed_accessor32<float,2,torch::RestrictPtrTraits>(),
-            T_r_to_l.packed_accessor32<float,2,torch::RestrictPtrTraits>(),
             anchor_frame_id.packed_accessor32<int,1,torch::RestrictPtrTraits>(),
             target_frame_id.packed_accessor32<int,1,torch::RestrictPtrTraits>(),
             feat_glob_id.packed_accessor32<int,1,torch::RestrictPtrTraits>(),
@@ -565,6 +572,8 @@ void updateState(
 
         h_lm_var.H_a_to_txt();
         h_lm_var.g_a_to_txt();
+
+        h_lm_var.B_to_txt();
     }
 
     cudaDeviceSynchronize();

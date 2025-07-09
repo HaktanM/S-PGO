@@ -44,7 +44,9 @@ inline __device__ void getTranspose(
     int height,
     int width
 ) {
+    #pragma unroll
     for (int row = 0; row < height; ++row) {
+        #pragma unroll
         for (int col = 0; col < width; ++col) {
             int inIdx  = row * width + col;
             int outIdx = col * height + row;
@@ -221,7 +223,9 @@ __global__ void LevenbergMarquardt(
         Kr[8] = 1.0f; 
 
         // Load extrinsic calibrations
+        #pragma unroll
         for(int row_idx=0; row_idx<4; row_idx++){
+            #pragma unroll
             for(int col_idx=0; col_idx<4; col_idx++){
                 T_l_to_r[row_idx*4 + col_idx] = T_l_to_r_torch[row_idx][col_idx];
             }
@@ -288,6 +292,7 @@ __global__ void LevenbergMarquardt(
             float cauchy_weight = sqrtf( 1.0f / ( 1.0 + (res_mag_square / lm_var->_cauchy_constant_square) ));
 
             // Apply cauchy weight
+            #pragma unroll
             for(int row_idx=0; row_idx<2; row_idx++){
                 residual[row_idx] *= cauchy_weight;
             }
@@ -300,7 +305,9 @@ __global__ void LevenbergMarquardt(
             float del_pnl_del_xn[12]; MatrixMultiplication(del_pnl_del_tnl, del_tnl_del_xn, del_pnl_del_xn, 2, 3, 6);
 
             // Apply cauchy weight
+            #pragma unroll
             for(int row_idx=0; row_idx<2; row_idx++){
+                #pragma unroll
                 for(int col_idx=0; col_idx<6; col_idx++){
                     del_pnl_del_xn[row_idx*6 + col_idx] *= cauchy_weight;
                 }
@@ -310,9 +317,10 @@ __global__ void LevenbergMarquardt(
             float del_pnl_del_xn_transpose[12]; getTranspose(del_pnl_del_xn, del_pnl_del_xn_transpose, 2, 6);
             float h_T[36]; MatrixMultiplication(del_pnl_del_xn_transpose, del_pnl_del_xn, h_T, 6, 2, 6);
             float g_T[6];  MatrixMultiplication(del_pnl_del_xn_transpose, residual, g_T, 6, 2, 1);
-            
+            #pragma unroll
             for(int row_idx=0; row_idx<6; row_idx++){
                 // First fil the H_T
+                #pragma unroll
                 for(int col_idx=0; col_idx<6; col_idx++){
                     int h_T_idx = row_idx * 6 + col_idx;
                     int H_T_idx = 6 * target_idx * lm_var->_number_of_pose_params 
@@ -331,11 +339,13 @@ __global__ void LevenbergMarquardt(
             // Compute del_tnl_del_alpha
             float R_ca_cnl[9];          getRotFromT(T_ca_to_cnl, R_ca_cnl);
             float del_tnl_del_alpha[3]; MatrixMultiplication(R_ca_cnl, t_feat_in_ca, del_tnl_del_alpha, 3, 3, 1);
+            #pragma unroll
             for(int row_idx=0; row_idx<3; row_idx++){
                 del_tnl_del_alpha[row_idx] = - del_tnl_del_alpha[row_idx] / alpha;
             }
 
             // Apply cauchy weight
+            #pragma unroll
             for(int row_idx=0; row_idx<3; row_idx++){
                 del_tnl_del_alpha[row_idx] *= cauchy_weight;
             }
@@ -349,6 +359,7 @@ __global__ void LevenbergMarquardt(
 
             // Finally compute B
             float B[6]; MatrixMultiplication(del_pnl_del_xn_transpose, del_pnl_del_alpha, B, 6, 2, 1);
+            #pragma unroll
             for(int row_idx=0; row_idx<6; row_idx++){
                 int B_row_idx = 6 * target_idx + row_idx;
                 int B_idx     = B_row_idx * lm_var->_number_of_landmarks + feat_idx;
@@ -374,6 +385,7 @@ __global__ void LevenbergMarquardt(
         float cauchy_weight = sqrtf( 1.0f / ( 1.0 + (res_mag_square / lm_var->_cauchy_constant_square) ));
 
         // Apply cauchy weight
+        #pragma unroll
         for(int row_idx=0; row_idx<2; row_idx++){
             residual[row_idx] *= cauchy_weight;
         }
@@ -387,11 +399,13 @@ __global__ void LevenbergMarquardt(
         float R_ca_cnr[9];          getRotFromT(T_ca_to_cnr, R_ca_cnr);
         float del_tnr_del_alpha[3]; MatrixMultiplication(R_ca_cnr, t_feat_in_ca, del_tnr_del_alpha, 3, 3, 1);
         
+        #pragma unroll
         for(int row_idx=0; row_idx<3; row_idx++){
             del_tnr_del_alpha[row_idx] = - del_tnr_del_alpha[row_idx] / alpha;
         }
 
         // Apply cauchy weight
+        #pragma unroll
         for(int row_idx=0; row_idx<3; row_idx++){
             del_tnr_del_alpha[row_idx] *= cauchy_weight;
         }
@@ -414,7 +428,9 @@ __global__ void LevenbergMarquardt(
             MatrixMultiplication(del_pnr_del_tnr, del_tnr_del_xn, del_pnr_del_xn, 2, 3, 6);
 
             // Apply cauchy weight
+            #pragma unroll
             for(int row_idx=0; row_idx<2; row_idx++){
+                #pragma unroll
                 for(int col_idx=0; col_idx<6; col_idx++){
                     del_pnr_del_xn[row_idx*6 + col_idx] *= cauchy_weight;
                 }
@@ -425,9 +441,10 @@ __global__ void LevenbergMarquardt(
             float h_T[36]; MatrixMultiplication(del_pnr_del_xn_transpose, del_pnr_del_xn, h_T, 6, 2, 6);
             float g_T[6];  MatrixMultiplication(del_pnr_del_xn_transpose, residual, g_T, 6, 2, 1);
 
-            
+            #pragma unroll
             for(int row_idx=0; row_idx<6; row_idx++){
                 // First fil the H_T
+                #pragma unroll
                 for(int col_idx=0; col_idx<6; col_idx++){
                     int h_T_idx = row_idx * 6 + col_idx;
                     int H_T_idx = 6 * target_idx * lm_var->_number_of_pose_params 
@@ -443,6 +460,7 @@ __global__ void LevenbergMarquardt(
 
             // Finally compute B
             float B[6]; MatrixMultiplication(del_pnr_del_xn_transpose, del_pnr_del_alpha, B, 6, 2, 1);
+            #pragma unroll
             for(int row_idx=0; row_idx<6; row_idx++){
                 int B_row_idx = 6 * target_idx + row_idx;
                 int B_idx     = B_row_idx * lm_var->_number_of_landmarks + feat_idx;
@@ -451,6 +469,71 @@ __global__ void LevenbergMarquardt(
         }
     }
 }
+
+void __global__ updateEstimation(
+    LMvariables *lm_var,
+    torch::PackedTensorAccessor32<float,3,torch::RestrictPtrTraits> poses,
+    torch::PackedTensorAccessor32<float,1,torch::RestrictPtrTraits> inverse_depths,
+    const float step_size
+){
+    // Get the size of the alpha vector
+    int number_of_poses      = lm_var->_number_of_poses;
+    int number_of_landmarks  = lm_var->_number_of_landmarks;
+
+    // Get the global thread index
+    int thread_global_idx = blockIdx.x * blockDim.x + threadIdx.x;
+
+
+    
+    if(thread_global_idx < number_of_poses){
+        // Update incremental pose
+        int pose_idx = thread_global_idx;
+        float xi[6];
+        float state_innovation[16];
+        float updated_pose[16];
+
+        float T_cn_in_g[16]; loadPose(poses, pose_idx, T_cn_in_g);
+
+        #pragma unroll
+        for(int idx=0; idx<6; ++idx){
+            xi[idx] = step_size * lm_var->d_delta_T[pose_idx * 6 + idx];
+        }
+
+        ExpSE3(
+            xi,
+            state_innovation
+        );
+        
+        MatrixMultiplication(
+            T_cn_in_g,
+            state_innovation,                          
+            updated_pose, 
+            4, 4, 4
+        );
+
+        // Rewrite the updated state back
+        #pragma unroll
+        for(int row_idx=0; row_idx<4; row_idx++){
+            #pragma unroll
+            for(int col_idx=0; col_idx<4; col_idx++){
+                poses[pose_idx][row_idx][col_idx] = updated_pose[row_idx*4 + col_idx];
+            }
+        }
+    }
+    else if(thread_global_idx < number_of_poses + number_of_landmarks ){
+        // Update estimated depth
+        int landmark_idx = thread_global_idx - number_of_poses;
+
+        // Update inverse depth
+        float updated_inverse_depth = inverse_depths[landmark_idx] + lm_var->d_delta_a[landmark_idx];
+        updated_inverse_depth = fminf(fmaxf(updated_inverse_depth, lm_var->_min_inv_depth), lm_var->_max_inv_depth);
+
+        // Rewrite the inverse depth
+        inverse_depths[landmark_idx] += step_size * lm_var->d_delta_a[landmark_idx];
+
+        inverse_depths[landmark_idx] = updated_inverse_depth;
+    }
+}   
 
 
 
@@ -548,7 +631,7 @@ void updateState(
 
     // Also compute the inverse of the extrinsics which will be used
     torch::Tensor T_l_to_r = invertSE3(T_r_to_l);
-
+    cudaError_t err; cublasStatus_t err_cublas; float alpha{1.0}, beta{0.0};
     for(int it_idx=0; it_idx<iterations; it_idx++){
         // Compute the A, B, C and g_a, g_T
         LevenbergMarquardt<<<NUM_BLOCKS(h_lm_var._measurement_count * 2), NUM_THREADS>>>(
@@ -566,17 +649,127 @@ void updateState(
         // Wait untill kernel is completed
         cudaDeviceSynchronize();
 
-        // print the Hessian for varification
-        h_lm_var.H_T_to_txt();
-        h_lm_var.g_T_to_txt();
+        // Compute the inverse of BC_inv
+        compute_B_C_inv<<<NUM_BLOCKS(h_lm_var._number_of_pose_params * h_lm_var._number_of_landmarks), NUM_THREADS>>>(d_lm_var);
 
-        h_lm_var.H_a_to_txt();
-        h_lm_var.g_a_to_txt();
+        // Wait untill kernel is completed
+        cudaDeviceSynchronize();
 
-        h_lm_var.B_to_txt();
+        // Check for any error
+        err = cudaGetLastError ();
+        if (err != cudaSuccess) {
+            fprintf(stderr, "CUDA error after kernel: %s\n", cudaGetErrorString(err));
+        }
+
+        // Create cuBLAS handle
+        cublasHandle_t handle;
+        cublasCreate(&handle);
+
+        cudaStream_t cublas_stream;
+        cublasGetStream(handle, &cublas_stream);  // Get cuBLAS internal stream
+
+        // Compute B_C_inv_B_T
+        // NOTE THAT, I have adopted the row-major array indexing for representing a matrix as an array.
+        // However, cuBLAS assumes column-major indexing. 
+        // Hence, cuBLAS percieves my arrays as their transpose
+        err_cublas = cublasSgemm(
+            handle,
+            CUBLAS_OP_T, CUBLAS_OP_N,
+            static_cast<size_t>(h_lm_var._number_of_pose_params), static_cast<size_t>(h_lm_var._number_of_pose_params), static_cast<size_t>(h_lm_var._number_of_landmarks),
+            &alpha,
+            h_lm_var.d_B_C_inv, h_lm_var._number_of_landmarks,     
+            h_lm_var.d_B, h_lm_var._number_of_landmarks,
+            &beta,
+            h_lm_var.d_B_C_inv_B_T, h_lm_var._number_of_pose_params
+        );
+        // Output is symmetric, hence, it does not matter if it is row major or column major.
+
+        err_cublas = cublasSgemm(
+            handle,
+            CUBLAS_OP_T, CUBLAS_OP_N,
+            static_cast<size_t>(h_lm_var._number_of_pose_params), static_cast<size_t>(1), static_cast<size_t>(h_lm_var._number_of_landmarks),
+            &alpha,
+            h_lm_var.d_B_C_inv, h_lm_var._number_of_landmarks,     
+            h_lm_var.d_g_a, h_lm_var._number_of_landmarks,
+            &beta,
+            h_lm_var.d_B_C_inv_g_a, h_lm_var._number_of_pose_params
+        );
+        // Output is a vector, hence, it does not matter if it is row major or column major.
+        
+        // Make sure outputs of cuBLAS are ready
+        cudaStreamSynchronize(cublas_stream);
+
+        // Check for any error
+        if (err_cublas != CUBLAS_STATUS_SUCCESS) {
+            std::cerr << "cublasSgemm failed: " << err_cublas << std::endl;
+        }
+        
+        // Compute H_schur and g_schur
+        int H_schur_size = h_lm_var._number_of_pose_params * h_lm_var._number_of_pose_params;
+        elementwiseSubtractionKernel<<<NUM_BLOCKS(H_schur_size), NUM_THREADS>>>(
+            h_lm_var.d_H_T,
+            h_lm_var.d_B_C_inv_B_T,
+            h_lm_var.d_H_schur,
+            H_schur_size
+        );
+
+        elementwiseSubtractionKernel<<<NUM_BLOCKS(h_lm_var._number_of_pose_params), NUM_THREADS>>>(
+            h_lm_var.d_g_T,
+            h_lm_var.d_B_C_inv_g_a,
+            h_lm_var.d_g_schur,
+            h_lm_var._number_of_pose_params
+        );
+
+        // Wait untill kernel is completed
+        cudaDeviceSynchronize();
+
+        // Compute delta T
+        h_lm_var.solve_Eigen();
+        cudaDeviceSynchronize();
+
+        // Compute delta alpha
+        err_cublas = cublasSgemm(
+            handle,
+            CUBLAS_OP_N, CUBLAS_OP_N,
+            static_cast<size_t>(h_lm_var._number_of_landmarks), static_cast<size_t>(1), static_cast<size_t>(h_lm_var._number_of_pose_params),
+            &alpha,
+            h_lm_var.d_B,       h_lm_var._number_of_landmarks,     
+            h_lm_var.d_delta_T, h_lm_var._number_of_pose_params,
+            &beta,
+            h_lm_var.d_B_T_delta_T, h_lm_var._number_of_landmarks
+        );
+
+        cudaStreamSynchronize(cublas_stream);
+
+
+        compute_delta_a<<<NUM_BLOCKS(h_lm_var._number_of_landmarks), NUM_THREADS>>>(d_lm_var);
+        cudaDeviceSynchronize();
+
+
+        // Finally, update the estimation
+        updateEstimation<<<NUM_BLOCKS(h_lm_var._number_of_poses + h_lm_var._number_of_landmarks), NUM_THREADS>>>(
+            d_lm_var,
+            poses.packed_accessor32<float,3,torch::RestrictPtrTraits>(),
+            inverse_depths.packed_accessor32<float,1,torch::RestrictPtrTraits>(),
+            step_size
+        );
+        cudaDeviceSynchronize();
+        
+        // // print the Hessian for varification
+        // h_lm_var.H_T_to_txt();
+        // h_lm_var.g_T_to_txt();
+
+        // h_lm_var.H_a_to_txt();
+        // h_lm_var.g_a_to_txt();
+
+        // h_lm_var.B_to_txt();
+
+        // h_lm_var.H_schur_to_txt();
+        // h_lm_var.g_schur_to_txt();
+
+        // h_lm_var.delta_pose_to_txt();
+        // h_lm_var.d_delta_a_to_txt();
     }
-
-    cudaDeviceSynchronize();
     cudaFree(d_lm_var);
     h_lm_var.freeAll();
 }

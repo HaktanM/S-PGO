@@ -5,7 +5,7 @@ from PythonUtils.SceneRenderer import Renderer
 from PythonUtils.LieUtils import LieUtils
 from PythonUtils.Optimizer import map_value_to_index
 from PythonUtils.visualization_utils import visualize_hessian_and_g
-
+from PythonUtils.visualization_utils import visualize_depth_estimation
 import time
 import threading
 import numpy as np
@@ -15,10 +15,10 @@ class Manager():
     def __init__(self):
 
         # Number of keyframes
-        self.n = 5
+        self.n = 3
 
         # NUmber of landmarks per frame
-        self.m = 20 
+        self.m = 96 
 
         # Number of total landmarks 
         self.M = self.n * self.m
@@ -99,76 +99,53 @@ class Manager():
         errors = []
         for idx in range(self.n):
             actual_T = self.simulator.poses[idx]
-            estim_T  = self.solver.getPose(idx)
+            estim_T  = self.simulator.poses[0] @ self.solver.getPose(idx)
             error_T = np.linalg.inv(actual_T) @ estim_T
             xi = self.LU.Log_SE3(error_T)
             errors.append(np.linalg.norm(xi))
         return errors
+    
+    def compute_depth_error(self):
+        actuals = []
+        estimates = []
+        errors = []
 
-    def get_estimated_global_poses(self,T_c0_g=None):
-        # If we don't have any initial condition, initialize with identity
-        if T_c0_g is None:
-            T_c0_g = np.eye(4)
+        estimated_inverse_depths = self.solver.getInverseDepths()
+        for idx in range(self.M):
+            # Extract scalar values safely
+            anchor_idx = map_value_to_index(v=idx, x=self.optimizer.number_of_landmarks, n=self.optimizer.number_of_keyframes)
+            actual_depth    = 1 / self.simulator.actual_depths[anchor_idx][idx][False]
+            estimated_depth = 1 / estimated_inverse_depths[idx]
 
-        # Compute the global poses and append
-        estimated_global_poses = []
-        estimated_global_poses.append(T_c0_g)
-        for T_c_c0 in self.estimated_poses:
-            T_c_g = T_c0_g @ T_c_c0
-            estimated_global_poses.append(T_c_g)
-        return estimated_global_poses
+            actuals.append(actual_depth)
+            estimates.append(estimated_depth)
+            errors.append(abs(estimated_depth - actual_depth))
+
+        visualize_depth_estimation(actual_depths=actuals, estimated_depths=estimates)
+
+        # # Print total error
+        # total_error = np.sum(errors)
+        # print("Total depth estimation error:", total_error)
+
 
 if __name__ == "__main__":
     manager = Manager()
 
-    # Get the optimization parameters from Python
-    H_TT, g_TT, H_aa, g_aa, BB = manager.optimizer.getHessians(observations=manager.simulator.observations)
 
     # Get Hessian from CUDA
-    manager.solver.step(1)
-    H_T = np.loadtxt("H_T.txt", delimiter=",")
-    g_T = np.loadtxt("g_T.txt", delimiter=",")
-
-    H_a = np.loadtxt("H_a.txt", delimiter=",")
-    g_a = np.loadtxt("g_a.txt", delimiter=",")
-
-    B = np.loadtxt("B.txt", delimiter=",")
-
-    H_schur = np.loadtxt("H_schur.txt", delimiter=",")
-    g_schur = np.loadtxt("g_schur.txt", delimiter=",")
-
-    delta_pose  = np.loadtxt("delta_T.txt", delimiter=",")
-    delta_alpha = np.loadtxt("delta_a.txt", delimiter=",")
-
-
-    H_a = H_a.reshape(-1) + 0.1
-    C_inv = np.diag(1.0 / H_a)
-
-    B_C_inv = B @ C_inv 
-    H_schurr = H_T - B_C_inv @ B.T 
-    g_schurr = g_T.reshape(-1,1) - (B_C_inv @ g_a).reshape(-1,1)
-
-
-    H_schurr += np.eye(H_schurr.shape[0]) * 1.0 # Required for stability
-    delta_posee  = np.linalg.solve(H_schurr, g_schurr)
-    delta_alphaa = C_inv @ (g_aa.reshape(-1,1)  - BB.T @ delta_posee.reshape(-1,1)) 
-
     
+    manager.compute_depth_error()
+    time.sleep(2)
+    
+    for _ in range(100):
 
-    # # # Compare two results
-    visualize_hessian_and_g(H_schur, delta_pose)
-    visualize_hessian_and_g(H_schur, delta_posee)
+        t_start = time.monotonic_ns()
+        manager.solver.step(10)
+        t_stop = time.monotonic_ns()
+        elsapsed_time = (t_stop - t_start) * 1e-6
+        print(f"elsapsed_time : {elsapsed_time} ms")
+        errors = manager.compute_estimation_errors()
+        print(np.array(errors).max())
 
-    visualize_hessian_and_g(H_schur, delta_alpha)
-    visualize_hessian_and_g(H_schur, delta_alphaa)
-
-
-    # visualize_hessian_and_g(np.diag(H_a.reshape(-1)), g_a)
-    # visualize_hessian_and_g(np.diag(H_aa.reshape(-1)), g_aa)
-
-    # visualize_hessian_and_g(B, g_T)
-    # visualize_hessian_and_g(BB, g_TT)
-
-
-    # visualize_hessian_and_g(H_schur, g_schur)
-    # visualize_hessian_and_g(H_schurr, g_schurr)
+        manager.compute_depth_error()
+        time.sleep(1)

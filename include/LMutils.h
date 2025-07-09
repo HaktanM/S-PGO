@@ -29,6 +29,7 @@ public:
     float *d_g_schur        = NULL;
 
     float *d_B_T_delta_T    = NULL;
+    float *d_delta_T        = NULL;
     float *d_delta_a        = NULL;
 
     float *d_T_r_to_l       = NULL;

@@ -187,5 +187,5 @@ void LMvariables::solve_Eigen() {
     Eigen::VectorXf delta_x = H.jacobiSvd(Eigen::ComputeThinU | Eigen::ComputeThinV).solve(g);
 
     // Copy result back to GPU
-    cudaMemcpy(d_g_schur, delta_x.data(), N * sizeof(float), cudaMemcpyHostToDevice);
+    cudaMemcpy(d_delta_T, delta_x.data(), N * sizeof(float), cudaMemcpyHostToDevice);
 }

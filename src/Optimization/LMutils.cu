@@ -90,12 +90,17 @@ void LMvariables::allocateMemory(int num_of_poses, int num_of_landmarks, int mea
     }
     
 
+    err = cudaMalloc((void**)&d_delta_T, _number_of_pose_params * sizeof(float));
+    cudaMemset(d_delta_T, 0,             _number_of_pose_params * sizeof(float));
+    if (err != cudaSuccess) {
+        printf("cudaMalloc failed: %s\n", cudaGetErrorString(err));
+    }
+
     err = cudaMalloc((void**)&d_delta_a, _number_of_landmarks * sizeof(float));
     cudaMemset(d_delta_a, 0,             _number_of_landmarks * sizeof(float));
     if (err != cudaSuccess) {
         printf("cudaMalloc failed: %s\n", cudaGetErrorString(err));
-    }
-    
+    }    
 
     err = cudaMalloc((void**)&d_T_r_to_l, 16 * sizeof(float));
     cudaMemset(d_T_r_to_l, 0,             16 * sizeof(float));
@@ -124,6 +129,7 @@ void LMvariables::resetMiddleVariables(){
     cudaMemset(d_H_schur,     0, _number_of_pose_params * _number_of_pose_params* sizeof(float)); 
     cudaMemset(d_g_schur,     0, _number_of_pose_params * sizeof(float));  
     cudaMemset(d_B_T_delta_T, 0, _number_of_landmarks * sizeof(float));
+    cudaMemset(d_delta_T,     0, _number_of_pose_params * sizeof(float));
     cudaMemset(d_delta_a,     0, _number_of_landmarks * sizeof(float));
 };
 
@@ -147,6 +153,7 @@ void LMvariables::freeAll(){
     cudaFree(d_g_schur);
 
     cudaFree(d_B_T_delta_T);
+    cudaFree(d_delta_T);
     cudaFree(d_delta_a);
 
     cudaFree(d_T_r_to_l);
@@ -387,22 +394,22 @@ void LMvariables::g_schur_to_txt(){
 
 void LMvariables::delta_pose_to_txt(){
     // First load the matrix C into CPU
-    float *h_g_schur;
-    h_g_schur =(float *) malloc( _number_of_pose_params * sizeof(float));
-    cudaMemcpy(h_g_schur, d_g_schur,   _number_of_pose_params * sizeof(float), cudaMemcpyDeviceToHost);
+    float *h_delta_T;
+    h_delta_T =(float *) malloc( _number_of_pose_params * sizeof(float));
+    cudaMemcpy(h_delta_T, d_delta_T,   _number_of_pose_params * sizeof(float), cudaMemcpyDeviceToHost);
 
     // Create and open a text file
-    std::ofstream txt_file("delta_pose.txt");
+    std::ofstream txt_file("delta_T.txt");
 
     // Write the C matrix into the txt
     for(int col_idx=0; col_idx<_number_of_pose_params; col_idx++){
-        txt_file << h_g_schur[col_idx];
+        txt_file << h_delta_T[col_idx];
         txt_file << std::endl;
     }
 
     // Close the file
     txt_file.close();
-    free(h_g_schur);
+    free(h_delta_T);
 }
 
 void LMvariables::d_B_T_delta_T_to_txt(){

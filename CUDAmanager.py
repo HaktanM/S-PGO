@@ -12,13 +12,13 @@ import numpy as np
 
 
 class Manager():
-    def __init__(self):
+    def __init__(self, n=5, m=30):
 
         # Number of keyframes
-        self.n = 3
+        self.n = n
 
         # NUmber of landmarks per frame
-        self.m = 96 
+        self.m = m 
 
         # Number of total landmarks 
         self.M = self.n * self.m
@@ -68,14 +68,18 @@ class Manager():
             self.visualizer.estimated_cam_frames.append(np.eye(4))
 
     def loadObservations(self):
+
+        counter = 0
         for landmark_idx in range(self.M): 
             anchor_idx = map_value_to_index(v=landmark_idx, x=self.M, n=self.n)
             for projection_idx in range(anchor_idx, self.n):
-                if True: #self.simulator.validty[projection_idx][landmark_idx][False] and self.simulator.validty[projection_idx][landmark_idx][True]:
+                if True: # self.simulator.validty[projection_idx][landmark_idx][False] and self.simulator.validty[projection_idx][landmark_idx][True]:
                     left_obs_py  = self.simulator.observations[projection_idx][landmark_idx][False].reshape(3).astype(np.float32)
                     right_obs_py = self.simulator.observations[projection_idx][landmark_idx][True].reshape(3).astype(np.float32)
                     self.solver.writeObservations(anchor_idx, projection_idx, landmark_idx, left_obs_py, right_obs_py)
+                    counter += 1
 
+        print(f"Counter : {counter}")
     def loadPoses(self):
         for idx in range(self.n):
             self.solver.writePose(idx, self.optimizer.estimated_poses[idx].reshape(16).astype(np.float32))
@@ -127,10 +131,29 @@ class Manager():
         # total_error = np.sum(errors)
         # print("Total depth estimation error:", total_error)
 
+    def visualize_estimated_poses(self):
+        # Compute the global poses and append
+        for idx in range(self.n):
+            estim_T  = self.simulator.poses[0] @ self.solver.getPose(idx)
+            self.visualizer.estimated_cam_frames[idx] = estim_T
+
+    def optimization_loop(self): 
+        counter = 0
+        while True:
+            self.solver.step(1)
+            errors = self.compute_estimation_errors()
+            print(np.array(errors).sum())
+            self.visualize_estimated_poses()
+            time.sleep(0.5)
+            # if counter<50:
+            #     counter += 1
+            # elif counter == 50:
+            #     print("Setting The Step Size")
+            #     self.solver.setStepSize(1.0)
+            #     counter += 1
 
 if __name__ == "__main__":
     manager = Manager()
-
 
     # Get Hessian from CUDA
     
@@ -138,6 +161,9 @@ if __name__ == "__main__":
     time.sleep(2)
     
     for _ in range(100):
+
+        manager.compute_depth_error()
+        time.sleep(2)
 
         t_start = time.monotonic_ns()
         manager.solver.step(10)

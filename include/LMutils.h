@@ -42,11 +42,11 @@ public:
     int _measurement_count{0};
     int _number_of_poses{0};
 
-    float _cauchy_constant_square{9.0};
+    float _cauchy_constant_square{100.0};
 
     float _eps{0.0001};   // During the division, _eps is used for numeric stability
 
-    float _lambda_schur{10.0};   // During the division, _eps is used for numeric stability
+    float _lambda_schur{0.1};   // During the division, _eps is used for numeric stability
 
     float _min_inv_depth{1.0/30.0};
     float _max_inv_depth{1.0/0.2};

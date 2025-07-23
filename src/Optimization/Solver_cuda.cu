@@ -55,6 +55,9 @@ inline __device__ void getTranspose(
     }
 }
 
+
+
+
 inline __device__ void applyRigidTransformation(
     float* T_a_to_b,
     float* t_in_a,
@@ -163,6 +166,29 @@ __global__ void elementwiseSubtractionKernel(
 }
 
 
+
+inline __device__ void weigthHuber(
+    float* res,
+    float &weigth,
+    float delta
+) {
+    float res_mag = sqrtf(res[0]*res[0] + res[1]*res[1]);
+    if (res_mag <= delta) {
+        weigth = 1.0f;
+    } else {
+        weigth = delta / res_mag;
+    }
+}
+
+
+inline __device__ void weigthCauchy(
+    float* res,
+    float &weigth,
+    float cauchy_constant_square
+) {
+    float res_mag_square = res[0]*res[0] + res[1]*res[1];
+    weigth = sqrtf( 1.0f / ( 1.0 + (res_mag_square / cauchy_constant_square) ));
+}
 
 __global__ void LevenbergMarquardt(
     const torch::PackedTensorAccessor32<float,4,torch::RestrictPtrTraits> observations,
@@ -288,13 +314,17 @@ __global__ void LevenbergMarquardt(
             residual[1] = observations[target_idx][feat_idx][cam_idx][1] - pnl_estimated[1];
 
             // Compute cauchy weight
-            float res_mag_square = residual[0]*residual[0] + residual[1]*residual[1];
-            float cauchy_weight = sqrtf( 1.0f / ( 1.0 + (res_mag_square / lm_var->_cauchy_constant_square) ));
+            float loss_weigth; weigthCauchy(residual, loss_weigth, lm_var->_cauchy_constant_square);
+            
+            // If the estimated projection is behind the camera, ignore it
+            if(pnl_estimated[2] < 0.2){
+                loss_weigth = 0.0;
+            }
 
-            // Apply cauchy weight
+            // Apply weight
             #pragma unroll
             for(int row_idx=0; row_idx<2; row_idx++){
-                residual[row_idx] *= cauchy_weight;
+                residual[row_idx] *= loss_weigth;
             }
             
             // Compute del_pnl_del_tnl in the first place
@@ -309,7 +339,7 @@ __global__ void LevenbergMarquardt(
             for(int row_idx=0; row_idx<2; row_idx++){
                 #pragma unroll
                 for(int col_idx=0; col_idx<6; col_idx++){
-                    del_pnl_del_xn[row_idx*6 + col_idx] *= cauchy_weight;
+                    del_pnl_del_xn[row_idx*6 + col_idx] *= loss_weigth;
                 }
             }
 
@@ -347,7 +377,7 @@ __global__ void LevenbergMarquardt(
             // Apply cauchy weight
             #pragma unroll
             for(int row_idx=0; row_idx<3; row_idx++){
-                del_tnl_del_alpha[row_idx] *= cauchy_weight;
+                del_tnl_del_alpha[row_idx] *= loss_weigth;
             }
 
             // Compute del_pnr_del_alpha
@@ -380,14 +410,18 @@ __global__ void LevenbergMarquardt(
         residual[0] = observations[target_idx][feat_idx][cam_idx][0] - pnr_estimated[0];
         residual[1] = observations[target_idx][feat_idx][cam_idx][1] - pnr_estimated[1];
 
-        // Compute cauchy weight
-        float res_mag_square = residual[0]*residual[0] + residual[1]*residual[1];
-        float cauchy_weight = sqrtf( 1.0f / ( 1.0 + (res_mag_square / lm_var->_cauchy_constant_square) ));
+        // Compute weight
+        float loss_weigth; weigthCauchy(residual, loss_weigth, lm_var->_cauchy_constant_square);
+
+        // If the estimated projection is behind the camera, ignore it
+        if(pnr_estimated[2] < 0.2){
+            loss_weigth = 0.0;
+        }
 
         // Apply cauchy weight
         #pragma unroll
         for(int row_idx=0; row_idx<2; row_idx++){
-            residual[row_idx] *= cauchy_weight;
+            residual[row_idx] *= loss_weigth;
         }
         
         // Compute del_pnr_del_tnr in the first place
@@ -407,7 +441,7 @@ __global__ void LevenbergMarquardt(
         // Apply cauchy weight
         #pragma unroll
         for(int row_idx=0; row_idx<3; row_idx++){
-            del_tnr_del_alpha[row_idx] *= cauchy_weight;
+            del_tnr_del_alpha[row_idx] *= loss_weigth;
         }
 
         // Compute del_pnr_del_alpha
@@ -432,7 +466,7 @@ __global__ void LevenbergMarquardt(
             for(int row_idx=0; row_idx<2; row_idx++){
                 #pragma unroll
                 for(int col_idx=0; col_idx<6; col_idx++){
-                    del_pnr_del_xn[row_idx*6 + col_idx] *= cauchy_weight;
+                    del_pnr_del_xn[row_idx*6 + col_idx] *= loss_weigth;
                 }
             }
 
@@ -629,6 +663,11 @@ void updateState(
     // Wait untill kernel is completed
     cudaDeviceSynchronize();
 
+    // Create cuBLAS handle
+    cublasHandle_t handle;
+    cublasCreate(&handle);
+
+
     // Also compute the inverse of the extrinsics which will be used
     torch::Tensor T_l_to_r = invertSE3(T_r_to_l);
     cudaError_t err; cublasStatus_t err_cublas; float alpha{1.0}, beta{0.0};
@@ -660,10 +699,6 @@ void updateState(
         if (err != cudaSuccess) {
             fprintf(stderr, "CUDA error after kernel: %s\n", cudaGetErrorString(err));
         }
-
-        // Create cuBLAS handle
-        cublasHandle_t handle;
-        cublasCreate(&handle);
 
         cudaStream_t cublas_stream;
         cublasGetStream(handle, &cublas_stream);  // Get cuBLAS internal stream
@@ -720,6 +755,9 @@ void updateState(
             h_lm_var._number_of_pose_params
         );
 
+        // Add damping for stability
+        add_damping_to_schur<<<NUM_BLOCKS(h_lm_var._number_of_pose_params), NUM_THREADS>>>(d_lm_var);
+
         // Wait untill kernel is completed
         cudaDeviceSynchronize();
 
@@ -769,7 +807,10 @@ void updateState(
 
         // h_lm_var.delta_pose_to_txt();
         // h_lm_var.d_delta_a_to_txt();
+
     }
+
+    cublasDestroy(handle);
     cudaFree(d_lm_var);
     h_lm_var.freeAll();
 }

@@ -79,6 +79,8 @@ class Manager():
                     self.solver.writeObservations(anchor_idx, projection_idx, landmark_idx, left_obs_py, right_obs_py)
                     counter += 1
 
+        self.meas_size = counter * 4
+
         print(f"Counter : {counter}")
     def loadPoses(self):
         for idx in range(self.n):

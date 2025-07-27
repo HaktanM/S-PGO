@@ -45,6 +45,29 @@ __global__ void elementwiseSubtractionKernel(
 }
 
 
+inline __device__ void weigthHuber(
+    float* res,
+    float &weigth,
+    float delta
+) {
+    float res_mag = sqrtf(res[0]*res[0] + res[1]*res[1]);
+    if (res_mag <= delta) {
+        weigth = 1.0f;
+    } else {
+        weigth = delta / res_mag;
+    }
+}
+
+
+inline __device__ void weigthCauchy(
+    float* res,
+    float &weigth,
+    float cauchy_constant_square
+) {
+    float res_mag_square = res[0]*res[0] + res[1]*res[1];
+    weigth = sqrtf( 1.0f / ( 1.0 + (res_mag_square / cauchy_constant_square) ));
+}
+
 
 __global__ void LevenbergMarquardt(
     const torch::PackedTensorAccessor32<float,4,torch::RestrictPtrTraits> observations,
@@ -211,16 +234,21 @@ __global__ void LevenbergMarquardt(
     MatrixMultiplication(del_pn_del_ta, del_ta_del_alpha, del_pn_del_alpha, 3, 3, 1);
     float del_fxy_del_alpha[2];
 
-    // First cauchy weight
-    float res_mag_square{0.0};
-    for(int xy_idx=0; xy_idx<2; xy_idx++){
-        float res = observations[target_idx][feat_idx][cam_idx][xy_idx] - p_in_target_est[xy_idx];
-        res_mag_square += res * res;
-    }
-    
-    // Compute cauchy weight
-    float cauchy_weight = sqrtf( 1.0f / ( 1.0 + (res_mag_square / lm_var->_cauchy_constant_square) ));
+    // Compute the residual
+    float residual[2];
+    residual[0] = observations[target_idx][feat_idx][cam_idx][0] - p_in_target_est[0];
+    residual[1] = observations[target_idx][feat_idx][cam_idx][1] - p_in_target_est[1];
 
+    // Compute cauchy weight
+    float loss_weigth; weigthCauchy(residual, loss_weigth, lm_var->_cauchy_constant_square);
+    if(p_in_target_est[2] < 0.2){
+        loss_weigth = 0.0;
+    }
+    loss_weigth = loss_weigth / ( (target_idx-anchor_idx)*(target_idx-anchor_idx) + 1 );
+
+    // if(anchor_idx == target_idx){
+    //     loss_weigth *= 10;
+    // }
 
     for(int xy_idx=0; xy_idx<2; xy_idx++){
 
@@ -228,13 +256,13 @@ __global__ void LevenbergMarquardt(
 
         
         // Compute the residual
-        lm_var->d_r[J_alpha_row_idx] = cauchy_weight * ( observations[target_idx][feat_idx][cam_idx][xy_idx] - p_in_target_est[xy_idx] );
+        lm_var->d_r[J_alpha_row_idx] = loss_weigth * ( observations[target_idx][feat_idx][cam_idx][xy_idx] - p_in_target_est[xy_idx] );
         
         // Fill H_aa and g_alpha
-        atomicAdd(&lm_var->d_C[feat_idx],   cauchy_weight * cauchy_weight * del_pn_del_alpha[xy_idx] * del_pn_del_alpha[xy_idx]);
-        atomicAdd(&lm_var->d_g_a[feat_idx], cauchy_weight * del_pn_del_alpha[xy_idx] * lm_var->d_r[J_alpha_row_idx]);
+        atomicAdd(&lm_var->d_C[feat_idx],   loss_weigth * loss_weigth * del_pn_del_alpha[xy_idx] * del_pn_del_alpha[xy_idx]);
+        atomicAdd(&lm_var->d_g_a[feat_idx], loss_weigth * del_pn_del_alpha[xy_idx] * lm_var->d_r[J_alpha_row_idx]);
 
-        del_fxy_del_alpha[xy_idx] = cauchy_weight * del_pn_del_alpha[xy_idx];
+        del_fxy_del_alpha[xy_idx] = loss_weigth * del_pn_del_alpha[xy_idx];
     }
 
 
@@ -278,7 +306,7 @@ __global__ void LevenbergMarquardt(
             for(int col_idx=0; col_idx<6; col_idx++){
                 int J_T_row_idx = 4 * measurement_idx + xy_idx + 2 * cam_idx;
                 int J_T_col_idx = 6 * state_idx + col_idx;
-                lm_var->d_J_T[J_T_row_idx * lm_var->_number_of_pose_params + J_T_col_idx] = cauchy_weight * del_pn_del_xi[6 * xy_idx + col_idx];
+                lm_var->d_J_T[J_T_row_idx * lm_var->_number_of_pose_params + J_T_col_idx] = loss_weigth * del_pn_del_xi[6 * xy_idx + col_idx];
             }
         }
     }
@@ -724,6 +752,10 @@ void updateState(
         );
 
         cudaStreamSynchronize(cublas_stream);
+
+        // Add damping for stability
+        add_damping_to_schur<<<NUM_BLOCKS(h_lm_var._number_of_pose_params), NUM_THREADS>>>(d_lm_var);
+
         cudaDeviceSynchronize();
 
         // Compute delta T

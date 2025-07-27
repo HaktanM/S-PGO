@@ -21,7 +21,7 @@ class SamplePoses():
         phi_rw = 0.0
         for _ in range(n):
             # Sample a random position on a sphere of radius r
-            r     = np.random.uniform(2.5, 3.5)  # radius of the camera orbit
+            r     = np.random.uniform(3.0, 3.5)  # radius of the camera orbit
             # theta = np.random.uniform(0, 2 * np.pi)
             # phi   = np.random.uniform(0, np.pi)
 

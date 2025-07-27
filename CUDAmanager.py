@@ -12,13 +12,13 @@ import time
 import threading
 
 class Manager():
-    def __init__(self):
+    def __init__(self, n=12, m=96):
 
         # Number of keyframes
-        self.n = 12
+        self.n = n
 
         # NUmber of landmarks per frame
-        self.m = 96
+        self.m = m
 
         # Number of total landmarks 
         self.M = self.n * self.m
@@ -64,13 +64,18 @@ class Manager():
             self.visualizer.estimated_cam_frames.append(np.eye(4))
 
     def loadObservations(self):
+
+        counter = 0
         for landmark_idx in range(self.M): 
             anchor_idx = map_value_to_index(v=landmark_idx, x=self.M, n=self.n)
-            for projection_idx in range(anchor_idx, self.n+1):
-                if self.simulator.validty[projection_idx][landmark_idx][False] and self.simulator.validty[projection_idx][landmark_idx][True]:
+            for projection_idx in range(anchor_idx, self.n):
+                if True: # self.simulator.validty[projection_idx][landmark_idx][False] and self.simulator.validty[projection_idx][landmark_idx][True]:
                     left_obs_py  = self.simulator.observations[projection_idx][landmark_idx][False].reshape(3).astype(np.float32)
                     right_obs_py = self.simulator.observations[projection_idx][landmark_idx][True].reshape(3).astype(np.float32)
                     self.solver.writeObservations(anchor_idx, projection_idx, landmark_idx, left_obs_py, right_obs_py)
+                    counter += 1
+
+        self.meas_size = counter * 4
 
     def loadIncrementalPoses(self):
         for idx in range(self.n):
@@ -115,17 +120,19 @@ class Manager():
             self.visualizer.estimated_cam_frames[idx] = T_curr_global
 
     def optimization_loop(self): 
-        time.sleep(3)
+        time.sleep(0.1)
+        counter = 0
         while True:
             self.solver.step(1)
             errors = self.compute_estimation_errors()
-            print(np.array(errors))
+            print(f"{counter} : {np.array(errors).sum()}")
             self.visualize_estimated_poses(T_curr_global = self.simulator.poses[0].copy())
-            time.sleep(1)
+            time.sleep(0.1)
+            counter += 1
 
 
 if __name__ == "__main__":
-    manager = Manager()
+    manager = Manager(n=10, m=96)
     manager.solver.setStepSize(0.1)
 
     worker = threading.Thread(
@@ -137,7 +144,3 @@ if __name__ == "__main__":
     manager.visualizer.start_rendering()
 
     worker.join()
-
-        
-
-    

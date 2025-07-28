@@ -75,6 +75,16 @@ class Optimizer():
             # self.estimated_incremental_poses.append(T_curr_next_noisy)
             self.estimated_incremental_poses.append(np.eye(4))
 
+    def initialize_estimated_poses_with_identity(self):
+        """
+        Initialize the estimated poses around the actual incremental poses
+        """
+        # Initialize the incremental poses 
+        self.estimated_incremental_poses = []
+
+        for idx in range(self.number_of_keyframes):
+            self.estimated_incremental_poses.append(np.eye(4))
+
     def initalize_depth_with_disparity(self, observations:dict):
         
         # Get the extrinsics between stereo setup

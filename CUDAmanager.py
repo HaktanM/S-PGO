@@ -5,6 +5,7 @@ from PythonUtils.Simulator import Simulator
 from PythonUtils.Optimizer import map_value_to_index
 from PythonUtils.SceneRenderer import Renderer
 from PythonUtils.LieUtils import LieUtils
+from PythonUtils.Optimizer import Optimizer
 
 import time
 
@@ -28,6 +29,10 @@ class Manager():
 
         # Initilize the CUDA solver
         self.solver = Solver.CudaSolver(self.n, self.m)
+
+        # We have a Python Implementation for comparison
+        self.optimizer = Optimizer(n=self.n, m=self.M)
+        self.optimizer.initialize_estimated_poses_with_identity()
 
         # Lie Algebra Utils
         self.LU = LieUtils()

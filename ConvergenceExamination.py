@@ -51,3 +51,5 @@ fig.patch.set_linewidth(1)
 # Layout adjustments for a clean fit
 plt.tight_layout()
 plt.show()
+
+plt.imsave("ErrorsVSiteartions.png")

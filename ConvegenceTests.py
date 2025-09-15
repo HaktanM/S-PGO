@@ -9,7 +9,7 @@ from PythonUtils.visualization_utils import visualize_depth_estimation
 import time
 import threading
 import numpy as np
-from tqdm import tqdm  # Import tqdm
+from tqdm import tqdm
 
 from CUDAmanager import Manager
 

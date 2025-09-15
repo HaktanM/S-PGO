@@ -18,16 +18,16 @@ class Manager():
     def __init__(self):
 
         # Number of keyframes
-        self.n = 5
+        self.n = 8
 
         # NUmber of landmarks per frame
-        self.m = 50 
+        self.m = 25 
 
         # Number of total landmarks 
         self.M = self.n * self.m
 
         # Initialize the simulator
-        self.simulator = Simulator(n=self.n, m=self.M)
+        self.simulator = Simulator(n=self.n+1, m=self.M)
 
         # Initilize the CUDA solver
         self.solver    = Solver.CudaSolver(self.n, self.m)
@@ -49,7 +49,7 @@ class Manager():
         self.loadInverseDepths()
 
         # Load estimated incremental poses to solver
-        self.loadPoses()
+        self.loadIncrementalPoses()
 
         # Finally, initialize the visualizer
         self.initialize_the_visualizer()
@@ -81,9 +81,9 @@ class Manager():
                     self.solver.writeObservations(anchor_idx, projection_idx, landmark_idx, left_obs_py, right_obs_py)
                     self.observation_count += 1
 
-    def loadPoses(self):
+    def loadIncrementalPoses(self):
         for idx in range(self.n):
-            self.solver.writePose(idx, self.optimizer.estimated_poses[idx].reshape(16).astype(np.float32))
+            self.solver.writeIncrementalPose(idx, np.eye(4).reshape(16).astype(np.float32))
 
     def loadCalibration(self):
         intrinsics = np.array([
@@ -128,9 +128,9 @@ if __name__ == "__main__":
 
     # Get the optimization parameters from Python
     H_TT, g_TT, H_aa, g_aa, BB = manager.optimizer.getHessians(observations=manager.simulator.observations)
-    J_T, J_a, r = manager.optimizer.getJacobians(observations=manager.simulator.observations)
+    J_T, J_a, r = manager.optimizer.getJacobiansAndResidual(observations=manager.simulator.observations)
 
-    J = np.log1p(np.abs(J_T[:6000,:]))
+    J = np.log1p(np.log1p(np.log1p(np.abs(J_T[:4000,:]))))
     sns.set_theme(style="white")
     plt.figure(figsize=(8,6))
     
@@ -148,6 +148,8 @@ if __name__ == "__main__":
         yticklabels=False  # hide y-axis numbers
     )
     ax.set_title("Logarithmic Heatmap of Jacobian", fontsize=14, family='serif', weight='bold', pad=20)
+    ax.set_xlabel("Axis of Estimated Variables", fontsize=14, family='serif')
+    ax.set_ylabel("Axis of Observations", fontsize=14, family='serif')
     plt.xticks(fontsize=12)
     plt.yticks(fontsize=12, rotation=0)
 

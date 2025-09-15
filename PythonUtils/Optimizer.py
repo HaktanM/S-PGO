@@ -70,9 +70,18 @@ class Optimizer():
 
             T_curr_next = actual_incremental_poses[idx]
             T_curr_next_noisy = T_curr_next @ T_noise
+            self.estimated_incremental_poses.append(T_curr_next_noisy)
 
-            # self.estimated_incremental_poses.append(T_curr_next_noisy)
-            # self.estimated_incremental_poses.append(T_curr_next_noisy)
+
+
+    def initialize_estimated_poses_with_identity(self):
+        """
+        Initialize the estimated poses around the actual incremental poses
+        """
+        # Initialize the incremental poses 
+        self.estimated_incremental_poses = []
+
+        for idx in range(self.number_of_keyframes):
             self.estimated_incremental_poses.append(np.eye(4))
 
     def initalize_depth_with_disparity(self, observations:dict):
@@ -362,6 +371,16 @@ class Optimizer():
                     row_idx += 2
 
         return J_T, J_alpha, r
+    
+
+    def getHessians(self, observations:dict):
+        J_T, J_alpha, r = self.getJacobiansAndResidual(observations)
+        H_TT = J_T.T @ J_T
+        g_TT = J_T.T @ r
+        H_aa = J_alpha.T @ J_alpha
+        g_aa = J_alpha.T @ r
+        BB = J_T.T @ J_alpha
+        return H_TT, g_TT, H_aa, g_aa, BB
     
     def step_pose_only(self, observations:dict, actual_depths:dict):
         """

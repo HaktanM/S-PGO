@@ -1,4 +1,6 @@
 build
+build_gb
+build_main
 env
 .vscode/
 *.txt

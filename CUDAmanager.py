@@ -1,24 +1,23 @@
-from build_main import Solver
+from build_ip import Solver
 import numpy as np
 
 from PythonUtils.Simulator import Simulator
 from PythonUtils.Optimizer import map_value_to_index
 from PythonUtils.SceneRenderer import Renderer
 from PythonUtils.LieUtils import LieUtils
+from PythonUtils.Optimizer import Optimizer
+
 
 import time
 
-
-import threading
-
 class Manager():
-    def __init__(self):
+    def __init__(self, n=5, m=30):
 
         # Number of keyframes
-        self.n = 12
+        self.n = n
 
         # NUmber of landmarks per frame
-        self.m = 96
+        self.m = m
 
         # Number of total landmarks 
         self.M = self.n * self.m
@@ -28,6 +27,10 @@ class Manager():
 
         # Initilize the CUDA solver
         self.solver = Solver.CudaSolver(self.n, self.m)
+
+        # We have a Python Implementation for comparison
+        self.PyOptimizer = Optimizer(n=self.n, m=self.M)
+        self.PyOptimizer.initialize_estimated_poses_with_identity()
 
         # Lie Algebra Utils
         self.LU = LieUtils()
@@ -64,6 +67,7 @@ class Manager():
             self.visualizer.estimated_cam_frames.append(np.eye(4))
 
     def loadObservations(self):
+        counter = 0
         for landmark_idx in range(self.M): 
             anchor_idx = map_value_to_index(v=landmark_idx, x=self.M, n=self.n)
             for projection_idx in range(anchor_idx, self.n+1):
@@ -71,7 +75,9 @@ class Manager():
                     left_obs_py  = self.simulator.observations[projection_idx][landmark_idx][False].reshape(3).astype(np.float32)
                     right_obs_py = self.simulator.observations[projection_idx][landmark_idx][True].reshape(3).astype(np.float32)
                     self.solver.writeObservations(anchor_idx, projection_idx, landmark_idx, left_obs_py, right_obs_py)
-
+                    counter += 1
+        self.meas_size = counter * 4
+        
     def loadIncrementalPoses(self):
         for idx in range(self.n):
             self.solver.writeIncrementalPose(idx, np.eye(4).reshape(16).astype(np.float32))
@@ -87,7 +93,7 @@ class Manager():
         self.solver.loadCalibration(intrinsics, T_r_to_l)
 
     def loadInverseDepths(self):
-        inverse_depths = np.array(self.optimizer.estimated_inverse_depths).reshape(-1).astype(np.float32)
+        inverse_depths = np.array(self.PyOptimizer.estimated_inverse_depths).reshape(-1).astype(np.float32)
         self.solver.loadInverseDepths(inverse_depths)
 
 
@@ -117,27 +123,8 @@ class Manager():
     def optimization_loop(self): 
         time.sleep(3)
         while True:
-            self.solver.step(1)
+            self.solver.step(2)
             errors = self.compute_estimation_errors()
             print(np.array(errors))
             self.visualize_estimated_poses(T_curr_global = self.simulator.poses[0].copy())
-            time.sleep(1)
-
-
-if __name__ == "__main__":
-    manager = Manager()
-    manager.solver.setStepSize(0.1)
-
-    worker = threading.Thread(
-        target=manager.optimization_loop,
-        daemon=True            # ensures the thread won’t block process exit
-    )
-    worker.start()
-
-    manager.visualizer.start_rendering()
-
-    worker.join()
-
-        
-
-    
+            time.sleep(0.1)

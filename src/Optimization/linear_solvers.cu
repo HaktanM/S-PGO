@@ -1,5 +1,6 @@
 #include "LMutils.h"
 #include <Eigen/Dense>
+#include <torch/torch.h>
 
 void LMvariables::solve_Cholesky(){
     // N is the number of rows and columns of matrix d_H
@@ -188,4 +189,30 @@ void LMvariables::solve_Eigen() {
 
     // Copy result back to GPU
     cudaMemcpy(d_g_schur, delta_x.data(), N * sizeof(float), cudaMemcpyHostToDevice);
+}
+
+
+void LMvariables::solve_torch_torch() {
+    int N = _number_of_pose_params;
+
+    // Assuming d_H_schur and d_g_schur are already on the GPU
+    // and have been converted to PyTorch tensors
+    torch::Tensor H = torch::from_blob(d_H_schur, {N, N}, torch::kFloat32).to(torch::kCUDA);
+    torch::Tensor g = torch::from_blob(d_g_schur, {N}, torch::kFloat32).to(torch::kCUDA).reshape({N, 1});;
+
+    // Perform Cholesky decomposition on H.
+    // std::get<0> extracts the Cholesky factor 'U' from the returned tuple.
+    torch::Tensor U = std::get<0>(at::linalg_cholesky_ex(H));
+
+    // Solve the linear system H * delta_x = g using the Cholesky factor.
+    torch::Tensor delta_x = torch::cholesky_solve(g, U);
+
+    // Get the raw pointer to the data of the delta_x tensor.
+    const void* src_ptr = delta_x.data_ptr();
+    
+    // Copy the data from the delta_x tensor to d_H_schur.
+    cudaError_t err = cudaMemcpyAsync(d_g_schur, src_ptr, N * sizeof(float), cudaMemcpyDeviceToDevice);
+    if (err != cudaSuccess) {
+        std::cerr << "cudaMemcpyAsync failed: " << cudaGetErrorString(err) << std::endl;
+    }
 }

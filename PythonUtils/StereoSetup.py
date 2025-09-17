@@ -9,13 +9,13 @@ class StereoSetup():
         self.width  = 640
         self.height = 512
         # Intrinsics for left and right cameras (3x3 matrices)
-        self.Kl = np.array([[300.0, 0.0, 320.0],
-                            [0.0, 300.0, 256.0],
+        self.Kl = np.array([[320.0, 0.0, 320.0],
+                            [0.0, 320.0, 240.0],
                             [0.0, 0.0, 1.0]]).reshape(3,3)
         
         # self.Kr = self.Kl.copy()
-        self.Kr = np.array([[300.0, 0.0, 320.0],
-                            [0.0, 300.0, 256.0],
+        self.Kr = np.array([[320.0, 0.0, 320.0],
+                            [0.0, 320.0, 240.0],
                             [0.0, 0.0, 1.0]]).reshape(3,3)
         
         self.Kl_inv = np.linalg.inv(self.Kl)
@@ -24,8 +24,8 @@ class StereoSetup():
         # Pose of left camera in right camera frame
         # self.T_l_r = pp.randn_SE3(1).matrix().cpu().numpy().reshape(4,4)
         self.T_l_r = np.array([
-            1.0, 0.0, 0.0, 1.0,
-            0.0, 1.0, 0.0, 0.5,
+            1.0, 0.0, 0.0, -0.2,
+            0.0, 1.0, 0.0, 0.0,
             0.0, 0.0, 1.0, 0.0,
             0.0, 0.0, 0.0, 1.0
         ]).reshape(4,4)

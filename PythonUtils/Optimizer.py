@@ -273,7 +273,7 @@ class Optimizer():
 
         self.step_size = max(self.step_size, 0.02)
         self.step_size = min(self.step_size, 10.0)
-        print(f"step_size : {self.step_size}, r_norm : {r_norm}")
+        # print(f"step_size : {self.step_size}, r_norm : {r_norm}")
         self.prev_norm = r_norm
 
 

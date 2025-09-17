@@ -56,9 +56,11 @@ public:
 
     void allocateMemory(int num_of_pose_params, int num_of_landmarks, int measurement_size);
 
+    // We have different solvers, you can pick as you wish
     void solve_Cholesky();
     void solve_SVD();
     void solve_Eigen();
+    void solve_torch_torch();
 
     void resetMiddleVariables();
     void freeAll();

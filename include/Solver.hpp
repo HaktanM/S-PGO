@@ -21,7 +21,6 @@ public:
 
         // Check for CUDA availability and select device
         torch::Device device = torch::cuda::is_available() ? torch::kCUDA : torch::kCPU;
-        std::cout << "Selected device: " << (device.is_cuda() ? "CUDA" : "CPU") << std::endl;
 
         // Set tensor options with float dtype and chosen device
         _options_float = torch::TensorOptions().dtype(torch::kFloat).device(device);

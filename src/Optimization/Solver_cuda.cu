@@ -221,6 +221,12 @@ __global__ void LevenbergMarquardt(
     // Compute cauchy weight
     float cauchy_weight = sqrtf( 1.0f / ( 1.0 + (res_mag_square / lm_var->_cauchy_constant_square) ));
 
+    // This operation smooths the optimization
+    // If two frames are closer, the residual is more informative
+    if (abs(target_idx-anchor_idx)<2){
+        cauchy_weight *= 4.0f;
+    }
+
 
     for(int xy_idx=0; xy_idx<2; xy_idx++){
 
@@ -727,7 +733,7 @@ void updateState(
         cudaDeviceSynchronize();
 
         // Compute delta T
-        h_lm_var.solve_Eigen();
+        h_lm_var.solve_torch_torch();
 
         // Compute delta alpha
         err_cublas = cublasSgemm(

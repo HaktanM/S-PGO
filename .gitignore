@@ -8,6 +8,13 @@ env
 PythonUtils/__pycache__
 
 
+PythonUtils/__pycache__
+
+# Temporary folders
+__pycache__/*
+
 # Temporary visuals
 Hessian_IP.pdf
 Jacobian_IP.pdf
+Hessian_GP.pdf
+Jacobian_GP.pdf

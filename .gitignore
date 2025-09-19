@@ -6,3 +6,8 @@ env
 .vscode/
 *.txt
 PythonUtils/__pycache__
+
+
+# Temporary visuals
+Hessian_IP.pdf
+Jacobian_IP.pdf

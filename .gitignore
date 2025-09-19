@@ -5,13 +5,12 @@ build_main
 env
 .vscode/
 *.txt
-PythonUtils/__pycache__
 
-
-PythonUtils/__pycache__
 
 # Temporary folders
+PythonUtils/__pycache__/*
 __pycache__/*
+.vscode
 
 # Temporary visuals
 Hessian_IP.pdf

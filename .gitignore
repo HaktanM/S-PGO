@@ -1,4 +1,5 @@
-build
+build_gp
+build_ip
 env
 .vscode/
 *.txt

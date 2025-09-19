@@ -1,4 +1,4 @@
-from build import Solver
+from build_gp import Solver
 from PythonUtils.Simulator import Simulator
 from PythonUtils.Optimizer import Optimizer
 from PythonUtils.SceneRenderer import Renderer

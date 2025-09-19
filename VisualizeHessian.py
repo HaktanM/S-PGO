@@ -1,4 +1,4 @@
-from build_ip import Solver
+from build_gp import Solver
 from PythonUtils.Simulator import Simulator
 from PythonUtils.Optimizer import Optimizer
 from PythonUtils.SceneRenderer import Renderer
@@ -23,7 +23,7 @@ if __name__ == "__main__":
 
     H_TT, g_TT, H_aa, g_aa, BB = manager.PyOptimizer.getHessians(observations=manager.simulator.observations)
     J_T, J_a, r = manager.PyOptimizer.getJacobiansAndResidual(observations=manager.simulator.observations)
-    J = np.log1p(np.log1p(np.log1p(np.abs(J_T[:4000,:]))))
+    J = np.log1p(np.log1p(np.log1p(np.abs(J_T[:manager.meas_size,:]))))
 
     sns.set_theme(style="white")
     plt.figure(figsize=(8,6))
@@ -49,7 +49,7 @@ if __name__ == "__main__":
     plt.xticks(fontsize=12)
     plt.yticks(fontsize=12, rotation=0)
     plt.tight_layout()
-    plt.savefig("Jacobian_IP.pdf")
+    plt.savefig("Jacobian_GP.pdf")
 
 
 
@@ -79,4 +79,4 @@ if __name__ == "__main__":
     plt.xticks(fontsize=12)
     plt.yticks(fontsize=12, rotation=0)
     plt.tight_layout()
-    plt.savefig("Hessian_IP.pdf")
+    plt.savefig("Hessian_GP.pdf")

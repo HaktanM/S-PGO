@@ -1,4 +1,4 @@
-from build import Solver
+from build_gp import Solver
 from PythonUtils.Simulator import Simulator
 from PythonUtils.Optimizer import Optimizer
 from PythonUtils.SceneRenderer import Renderer
@@ -30,8 +30,8 @@ class Manager():
         self.solver    = Solver.CudaSolver(self.n, self.m)
 
         # We have a Python Implementation for comparison
-        self.optimizer = Optimizer(n=self.n, m=self.M)
-        self.optimizer.initialize_estimated_poses_with_identity()
+        self.PyOptimizer = Optimizer(n=self.n, m=self.M)
+        self.PyOptimizer.initialize_estimated_poses_with_identity()
 
         # Lie Algebra Utils
         self.LU = LieUtils()
@@ -84,7 +84,7 @@ class Manager():
         print(f"Counter : {counter}")
     def loadPoses(self):
         for idx in range(self.n):
-            self.solver.writePose(idx, self.optimizer.estimated_poses[idx].reshape(16).astype(np.float32))
+            self.solver.writePose(idx, self.PyOptimizer.estimated_poses[idx].reshape(16).astype(np.float32))
 
     def loadCalibration(self):
         intrinsics = np.array([
@@ -97,7 +97,7 @@ class Manager():
         self.solver.loadCalibration(intrinsics, T_r_to_l)
 
     def loadInverseDepths(self):
-        inverse_depths = np.array(self.optimizer.estimated_inverse_depths).reshape(-1).astype(np.float32)
+        inverse_depths = np.array(self.PyOptimizer.estimated_inverse_depths).reshape(-1).astype(np.float32)
         self.solver.loadInverseDepths(inverse_depths)
 
 
@@ -119,7 +119,7 @@ class Manager():
         estimated_inverse_depths = self.solver.getInverseDepths()
         for idx in range(self.M):
             # Extract scalar values safely
-            anchor_idx = map_value_to_index(v=idx, x=self.optimizer.number_of_landmarks, n=self.optimizer.number_of_keyframes)
+            anchor_idx = map_value_to_index(v=idx, x=self.PyOptimizer.number_of_landmarks, n=self.PyOptimizer.number_of_keyframes)
             actual_depth    = 1 / self.simulator.actual_depths[anchor_idx][idx][False]
             estimated_depth = 1 / estimated_inverse_depths[idx]
 

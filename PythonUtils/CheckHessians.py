@@ -8,7 +8,7 @@ if __name__ == "__main__":
     manager = Manager()
 
     H_TT, g_TT, H_aa, g_aa, BB = manager.optimizer.getHessians(observations=manager.simulator.observations)
-    J_T, J_a, r                = manager.optimizer.getJacobians(observations=manager.simulator.observations)
+    J_T, J_a, r                = manager.optimizer.getJacobiansAndResidual(observations=manager.simulator.observations)
 
     H_T = J_T.T @ J_T 
     g_T = J_T.T @ r

@@ -258,7 +258,7 @@ class Optimizer():
         return H_TT, g_TT, H_aa, g_aa, B
     
 
-    def getJacobians(self, observations:dict):
+    def getJacobiansAndResidual(self, observations:dict):
         # State Dimension
         pose_states_dim  = self.number_of_keyframes * 6
         depth_states_dim = len(self.estimated_inverse_depths)
@@ -369,6 +369,7 @@ class Optimizer():
                 J_row_idx += 2
 
         return J_T, J_a, r
+        
 
     def step(self, observations:dict):
         A, g_TT, H_aa, g_aa, BB = self.getHessians(observations=observations)

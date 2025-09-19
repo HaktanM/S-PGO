@@ -1,6 +1,6 @@
 build
 build_ip
-build_gb
+build_gp
 build_main
 env
 .vscode/
